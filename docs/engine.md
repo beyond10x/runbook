@@ -441,9 +441,18 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   call's reservation with `cost_known: false` (`docs/model-routes.md`, section 5): in a step, the largest
   reservation the step holds; otherwise (a call of the decider, or a step that holds none) what one call of the
   decider may cost (`max_call_micro_usd`, its `max_budget_usd`), at most what the run's spend cap has left.
-- A call is exchanged with the gateway and booked apart from its caller: a caller that hangs up before the
-  answer does not stop a call that was sent from being booked, once. An answer that breaks off after its head
-  ran on the gateway: it is booked at its tokens and prices as read, else at its reservation.
+- A call is exchanged with the gateway and booked apart from its caller, once. A caller that hangs up before the
+  answer has ended (its own timeout killed it, its run was cancelled) ends the call at the gateway too: the relay
+  closes its request to the gateway within a second, before the gateway's head or while the answer streams, so a
+  managed route does not go on generating for nobody. The call is booked with the `cause` `call-abandoned` and
+  the `code` `caller-hung-up`, at the tokens the answer reported so far and the route's prices, else at its
+  reservation (`cost_known: false`). An answer that ends within 200 ms of the hang-up is read to its end and booked
+  as answered, with all its tokens, a chunk the hang-up cut into included. An abandoned call is no failed call of its
+  step. A caller that only half-closes its connection and still reads is taken for one that hung up: the daemon's
+  HTTP server (`axum::serve`) drops its call before the relay sees it (story
+  `a-call-booked-after-its-step-ended-does-not-fail-the-run`; `runbook/src/relay.rs`, `exchange` and `answer`). An
+  answer that breaks off after its head ran on the gateway: it is booked at its tokens and prices as read, else at
+  its reservation.
 - A gateway that refuses the call, or does not answer, fails the call: the refusal is passed back unchanged
   (a connection that fails answers `502` `route-unavailable`), and the line and the event carry a `cause`, the
   route, the gateway's `code` (`connection-failed` for no answer, `answer-broken` for an answer that broke off),
@@ -460,14 +469,28 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   passed to the client, which may retry, as Claude Code does. The run ends as the step ends: a step whose program
   exits 0 with its products goes on, and the run's record names the failed calls with one event
   `runbook.model-calls-failed` (the step, and per call the route, the `gateway_call`, the `cause`, the `code`, the
-  `detail` and the `error`), one event per step: a call left in flight by an earlier step and booked while a later
-  one runs is named under its own step, and one that ends after the last step was booked is named when the run's
-  calls are closed; a step whose program failed ends the run with its own first failed call as its first cause, `<cause>: route <route> (chosen by <source>) failed the call: <code>: <detail>` (`refused the call` for
-  `call-refused`) (story `a-recovered-call-does-not-fail-the-run`).
+  `detail` and the `error`), one event per step. A step whose program exits with a status its bindings take as a
+  result (one their `results` map, not one their `exits.error` lists) failed nothing by itself either: Loom took the
+  result, and when the protocol goes on (its next call into the tree runs a step, waits on a person or ends the run)
+  the calls are named the same way ("its program's exit was taken as a result, and the protocol went on"). A step
+  whose program failed (an exit its `exits.error` lists, a signal, its timeout, no exit; or an exit taken as a
+  result after which the tree has nothing it can do) ends the run with its own first failed call as its first cause,
+  `<cause>: route <route> (chosen by <source>) failed the call: <code>: <detail>` (`refused the call` for
+  `call-refused`) (story `a-recovered-call-does-not-fail-the-run`). Which step failed is read from the log of the
+  step's own case only, never from another case's. A failed call booked after its step ended (its program had exited,
+  and a process of it kept the call open; another step, a later start of the same action, or none is in flight then)
+  never fails the run, a refusal of the route among them: its step is over and went on, and the next call on a refused
+  route meets the refusal in its own step. A call is told from one of a later start of the same action by the count
+  of step starts it was admitted in. It is named under its own step with one event `runbook.model-calls-failed` ("the call ended after its step
+  had ended") when the run's calls are next recorded, while a later step runs, between steps, or when the run's calls
+  are closed (story `a-call-booked-after-its-step-ended-does-not-fail-the-run`; `runbook/src/engine/gate.rs`,
+  `RelayBooking::book`).
 - What stops the run at once: the gateway's refusals of the route (`model-unknown`, `wire-not-served`,
   `credential-absent`, `credential-malformed`, `credential-rejected`) and its `spend-ceiling` fail the step they
-  came in with `route-unavailable`, the route, the code and the `source`, whatever its program does after; a call
-  past the run's caps is refused by the relay and the caps stop the run before the next step. A call of the decider
+  came in with `route-unavailable`, the route, the code and the `source`, whatever its program does after, when they
+  are booked while that step is in flight. One booked after its step ended is a late call like any other: it is named
+  under its own step and is never the cause of a run that went on. A call past the run's caps is refused by the relay
+  and the caps stop the run before the next step. A call of the decider
   that fails ends the decider's call as any failed call does: the decision stays open for a person.
 - For a run on a route the relay's line is the call's cost: the cost records of its bound programs book
   nothing, and one with no `cost_usd` does not end the run (`runbook/src/cost.rs`). A line the ledger cannot

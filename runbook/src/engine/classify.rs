@@ -23,7 +23,7 @@ use crate::relay::{RouteTable, Ticket, ROUTE_UNAVAILABLE};
 use crate::runtime::{EventSink, StartRequest};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// How long a classify or build call waits for the next bytes of its answer.
@@ -45,10 +45,6 @@ pub struct Taken {
     pub generated: bool,
 }
 
-fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 /// The path of the delegation `request`, taken now with the classify and build calls, or read from the run's directory when
 /// the run goes on from its store. `meter` is the run's: the calls count against its caps.
 pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, caps: Caps, workspace: &Path, meter: &Arc<Meter>, cancelled: &dyn Fn() -> bool) -> Result<Taken, String> {
@@ -62,7 +58,7 @@ pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, ca
     let classifier = route.name.clone();
     let ticket = relay.open(&request.run_id, RouteTable::default().with(dlg::CLASSIFIER_ROLE, route, SOURCE))?;
     let mut gate = Gate::open(caps, &engine.state_dir, &request.runbook, &request.run_id, &request.state_dir, workspace, false, meter.clone(), crate::budget::Reserves::default())?;
-    let step = Arc::new(Mutex::new(Some("delegation.classify".to_owned())));
+    let step = Arc::new(super::route::StepInFlight::at("delegation.classify"));
     let booking = gate.route(step.clone());
     // a call of unknown cost books what one such call may cost, never all the cap has left (docs/model-routes.md, section 5)
     booking.set_max_call(dlg::CALL_RESERVATION_MICRO_USD);
@@ -94,7 +90,7 @@ fn taken_of(engine: &Engine, request: &StartRequest, record: &Value) -> Result<T
 }
 
 /// The classify call, and below the threshold the build call and the loader; `record` takes what is known as it is known.
-fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Caller<'_>, step: &Mutex<Option<String>>, record: &mut Value) -> Result<Taken, String> {
+fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Caller<'_>, step: &super::route::StepInFlight, record: &mut Value) -> Result<Taken, String> {
     let catalog = catalog_of(engine);
     let products = workspace.join(dlg::PRODUCTS_DIR);
     let classified = ask(caller, &dlg::classify_prompt(&request.intake, &catalog), MAX_TOKENS_CLASSIFY, |t| dlg::read_classified(t, &catalog))?;
@@ -108,7 +104,7 @@ fn take(engine: &Engine, request: &StartRequest, workspace: &Path, caller: &Call
         let home = layout::home_of(&engine.homes, &id)?;
         return Ok(Taken { runbook: id, home, whole_text: false, generated: false });
     }
-    *lock(step) = Some("delegation.build".to_owned());
+    step.start(Some("delegation.build".to_owned()));
     let built = ask(caller, &dlg::build_prompt(&request.intake, &catalog), MAX_TOKENS_BUILD, dlg::read_built)?;
     let free_home = engine.free_home.clone().ok_or("the engine runs no free run, whose agent node a generated protocol runs")?;
     let (protocol, bindings) = match built {

@@ -45,8 +45,8 @@ fn streamed_error(call: &str) -> Vec<u8> {
 /// The bash function `call` of a stand-in client: one Messages call to `$base` (with `$token`, model `$model`) over
 /// its own connection, its status line appended to `<log>/statuses`. With `$1` `hang-up` the client sends the call,
 /// waits a moment (the relay has taken it) and closes its connection without reading the answer, as a client does
-/// that gave up on a call or exited with it open.
-fn call_function(log: &Path) -> String {
+/// that gave up on a call (the relay then ends the call at the gateway as abandoned).
+pub(super) fn call_function(log: &Path) -> String {
     format!(
         r#"call() {{
   local body="{{\"model\":\"$model\",\"max_tokens\":8,\"messages\":[{{\"role\":\"user\",\"content\":\"hi\"}}]}}"
@@ -68,13 +68,15 @@ fn call_function(log: &Path) -> String {
     )
 }
 
-/// The line of a stand-in client that sends a call and hangs up on it: the relay goes on with the call ("a caller that
-/// hangs up drops this handler and not the call", `runbook/src/relay.rs`) and books it when the gateway answers.
-const LATE_CALL: &str = "call hang-up\n";
+/// The lines of a stand-in client that sends a call from a process of its own and goes on without it: the call stays
+/// open (its connection to the relay is not closed, so the relay does not end it as abandoned) after the client exits,
+/// and the relay books it when the gateway answers. The process's output goes nowhere, so it holds no pipe of the
+/// runner; the pause lets the relay take the call before the client goes on.
+const LATE_CALL: &str = "( call '' ) </dev/null >/dev/null 2>&1 &\nsleep 0.3\n";
 
-/// A `claude` in bash for the free run's agent node: its first call is answered (200), it sends a second call and
-/// hangs up on it, and while that one is in flight at the relay the agent writes `out/result.md` and exits 0, as a
-/// client does that ends with a side call still open.
+/// A `claude` in bash for the free run's agent node: its first call is answered (200), it sends a second call from a
+/// process of its own that keeps it open, and while that one is in flight at the relay the agent writes
+/// `out/result.md` and exits 0, as a client does that ends with a side call still open.
 fn claude_leaving_a_call_in_flight(log: &Path) -> String {
     format!(
         r#"#!/bin/bash
@@ -216,8 +218,9 @@ fn adversary_w4_a_failed_call_still_in_flight_when_the_last_step_was_booked_is_n
     assert_eq!(named, vec![json!("gw-call-late")], "the run's record does not name the failed call that ended after its step was booked: model-calls-failed {:?}", events(&l, &run, "runbook.model-calls-failed"));
 }
 
-/// A runbook of two bound programs on the run's route. `notes.write` sends one call, hangs up on it and exits 0 with
-/// `notes.md` while it is in flight at the relay; `result.write` (after it) sends one call and exits 1.
+/// A runbook of two bound programs on the run's route. `notes.write` sends one call, leaves it open in a process of its
+/// own and exits 0 with `notes.md` while it is in flight at the relay; `result.write` (after it) sends one call and
+/// exits 1.
 fn late_then_failing_runbook(h: &Home) {
     let protocol = "format: protocol/1\nprotocol:\n  id: late-demo\n  revision: 1\n  description: >-\n    An adversary case's runbook: a step that leaves a call in flight, then a step whose program fails.\nartifacts:\n  idea: {}\n  notes: {}\n  result: {}\nevidence_kinds:\n  notes_written: {}\n  result_written: {}\nclaims:\n  notes.written:\n    true_when:\n      evidence: {kind: notes_written, subject: notes, result: written}\n  result.written:\n    true_when:\n      evidence: {kind: result_written, subject: result, result: written}\nactions:\n  notes.write:\n    effect: write\n    precondition: {claim: notes.written, is: unknown}\n    may_produce:\n      - evidence: notes_written\n  result.write:\n    effect: write\n    precondition: {claim: notes.written}\n    may_produce:\n      - evidence: result_written\noutcomes:\n  answered:\n    requires: {claim: result.written}\n";
     let bindings = "format: loom.bindings/1\nprotocol: late-demo@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\n  notes: notes.md\n  result: result.md\nactions:\n  - action: notes.write\n    executor:\n      kind: program\n      argv: [tools/late-notes.sh, --max-budget-usd, \"0.5\"]\n    timeout_seconds: 20\n    evidence:\n      - kind: notes_written\n        subject: notes\n        producer: late\n        from: exit\n        results: {\"0\": written, timeout: failed, \"*\": failed}\n  - action: result.write\n    executor:\n      kind: program\n      argv: [tools/late-result.sh, --max-budget-usd, \"0.5\"]\n    timeout_seconds: 20\n    evidence:\n      - kind: result_written\n        subject: result\n        producer: late\n        from: exit\n        results: {\"0\": written, timeout: failed, \"*\": failed}\n";

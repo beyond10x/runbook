@@ -27,7 +27,7 @@ pub struct RunRoute {
     file: RouteFile,
     pub ticket: Ticket,
     /// The step in flight, written by [`StepNote`] and read by the relay for the line of a call.
-    pub step: Arc<Mutex<Option<String>>>,
+    pub step: Arc<StepInFlight>,
     /// The role names the route file holds, in order.
     pub roles: Vec<String>,
 }
@@ -38,7 +38,7 @@ impl RunRoute {
         let ticket = relay.open(run_id, table.clone())?;
         let file = RouteFile::write(&private_name(run_dir), &ticket, table)?;
         let roles = table.roles().into_iter().map(str::to_owned).collect();
-        Ok(RunRoute { file, ticket, step: Arc::new(Mutex::new(None)), roles })
+        Ok(RunRoute { file, ticket, step: Arc::new(StepInFlight::default()), roles })
     }
 
     /// The route file.
@@ -88,15 +88,49 @@ impl TestRunner for RouteEnv {
     }
 }
 
+/// The step in flight of a run (the action of its program, else its case; none between steps) and the count of the
+/// changes of it so far. A call keeps both as it is admitted: one booked when the count has moved on ended after its
+/// own step did, though a later start of the same action may be in flight then.
+#[derive(Default)]
+pub struct StepInFlight(Mutex<(Option<String>, u64)>);
+
+impl StepInFlight {
+    /// A step `name` in flight.
+    pub fn at(name: &str) -> StepInFlight {
+        StepInFlight(Mutex::new((Some(name.to_owned()), 0)))
+    }
+
+    /// The step `name` starts (none: the step ends).
+    pub fn start(&self, name: Option<String>) {
+        let mut now = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        *now = (name, now.1.wrapping_add(1));
+    }
+
+    /// The step in flight ends.
+    pub fn end(&self) {
+        self.start(None);
+    }
+
+    /// The step in flight and the count of the changes of it.
+    pub fn now(&self) -> (Option<String>, u64) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The step in flight.
+    pub fn name(&self) -> Option<String> {
+        self.now().0
+    }
+}
+
 /// A [`StartTarget`] that keeps the step in flight for the relay (the action of the program, else its case) and
 /// tells every start and end on to the target it wraps.
 pub struct StepNote {
     inner: Arc<dyn StartTarget>,
-    step: Arc<Mutex<Option<String>>>,
+    step: Arc<StepInFlight>,
 }
 
 impl StepNote {
-    pub fn wrap(inner: Arc<dyn StartTarget>, step: Arc<Mutex<Option<String>>>) -> Arc<dyn StartTarget> {
+    pub fn wrap(inner: Arc<dyn StartTarget>, step: Arc<StepInFlight>) -> Arc<dyn StartTarget> {
         Arc::new(StepNote { inner, step })
     }
 }
@@ -104,14 +138,14 @@ impl StepNote {
 impl StartTarget for StepNote {
     fn started(&self, start: &Started) {
         if start.role == "program" {
-            *self.step.lock().unwrap_or_else(|e| e.into_inner()) = start.action.clone().or_else(|| start.case.clone());
+            self.step.start(start.action.clone().or_else(|| start.case.clone()));
         }
         self.inner.started(start);
     }
 
     fn ended(&self, start: &Started) {
         if start.role == "program" {
-            *self.step.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            self.step.end();
         }
         self.inner.ended(start);
     }
