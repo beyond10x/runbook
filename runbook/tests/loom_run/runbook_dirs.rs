@@ -291,6 +291,7 @@ fn the_daemons_start_refuses_two_directories_with_one_name_before_it_writes_its_
         arbiter: None,
         routes: Default::default(),
         classify_threshold: None,
+        repositories: Default::default(),
         route_table: None,
         assets_root: None,
         token_file: None,

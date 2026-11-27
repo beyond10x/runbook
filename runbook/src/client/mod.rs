@@ -148,6 +148,10 @@ pub struct DelegateArgs {
     /// A directory the daemon copies into the run's workspace; it must lie under one of the daemon's context roots.
     #[arg(long, value_name = "DIR")]
     pub workspace: Option<PathBuf>,
+    /// A repository the run changes on its own branch, by the name of its entry in the daemon's runbook.toml
+    /// (`[repositories.<name>]`); the daemon pushes the change as `runbook/<run-id>` when the run delivers.
+    #[arg(long, value_name = "NAME")]
+    pub repository: Option<String>,
     /// A setting of the run, `KEY=VALUE`; repeatable, each key once.
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
@@ -324,7 +328,7 @@ fn delegate_run(args: DelegateArgs) -> Result<(), Failure> {
         None => None,
         Some(dir) => Some(absolute_dir("--workspace", dir)?),
     };
-    let input = Delegate { request, model_route: args.route, protocol: args.protocol, workspace, settings, ..Delegate::default() };
+    let input = Delegate { request, model_route: args.route, protocol: args.protocol, workspace, settings, repository: args.repository, ..Delegate::default() };
     let reply = api.command("delegate", &input)?;
     if args.json {
         return say(&format!("{}\n", reply.body.trim_end()));

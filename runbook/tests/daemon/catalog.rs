@@ -156,7 +156,7 @@ fn the_catalog_of_a_daemon_with_two_routes_and_two_runbooks_lists_both_of_each_w
     let members: Vec<(String, bool)> = d["members"].as_array().unwrap().iter().map(|m| (m["name"].as_str().unwrap().to_owned(), m["required"].as_bool().unwrap())).collect();
     assert_eq!(
         members,
-        [("request", true), ("model_route", false), ("protocol", false), ("workspace", false), ("settings", false), ("session_id", false), ("idempotency_key", false), ("serial_key", false)].map(|(n, r)| (n.to_owned(), r)),
+        [("request", true), ("model_route", false), ("protocol", false), ("workspace", false), ("settings", false), ("session_id", false), ("idempotency_key", false), ("serial_key", false), ("repository", false)].map(|(n, r)| (n.to_owned(), r)),
         "{d}"
     );
     let key = d["members"].as_array().unwrap().iter().find(|m| m["name"] == "idempotency_key").unwrap();

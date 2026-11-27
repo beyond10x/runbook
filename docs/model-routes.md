@@ -406,6 +406,15 @@ A run at the confinement level `substrate` cannot reach a gateway on loopback to
 (`story:gateway-under-substrate-confinement`, draft). A route serves runs at the level `local` only, and a submit at
 `substrate` that needs a route is refused by name (D-4).
 
+A delegation that changes a repository (story `a-delegation-changes-a-repository-on-its-own-branch`, first slice;
+`docs/daemon-api.md`, "A delegation that changes a repository") runs at `local` only. At `local` there is no OS
+confinement; the write fence of an agent node is the claude CLI's tool set (no Bash, WebFetch or WebSearch) and its
+working directory. The one path this adds: the agent node of `delegation-change` works in the run's worktree T of
+the repository (`RUNBOOK_WORKTREE`) instead of its call directory under the workspace, so the model may write T,
+minus T's `.git` file. The daemon refuses the hand-back when that file changed. The model's process gets no
+credential and no network beyond the relay; the daemon's own git calls make the push. The level `linux` for such a
+run (T as a writable root besides the workspace) needs a Loom request and is not built.
+
 ### 8. Delegation: one endpoint for an agent run on a route
 
 A **delegation** asks the daemon to do a piece of agent work on a named route:

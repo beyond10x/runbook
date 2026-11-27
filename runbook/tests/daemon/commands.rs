@@ -884,6 +884,7 @@ fn trigger(fx: &Fx, command: &str, outcome: &str) -> Option<Outcome> {
         ("delegate", "route-refused") => delegate(&|i| i.model_route = Some("undeclared".into())),
         ("delegate", "no-runbook") => delegate(&|i| i.protocol = Some("nothing".into())),
         ("delegate", "context-outside-roots") => delegate(&|i| i.workspace = Some(fx.dir.to_string_lossy().into_owned())),
+        ("delegate", "repository-refused") => delegate(&|i| i.repository = Some("not-listed".into())),
         ("delegate", "no-daemon") => d.delegate_for("another-daemon", delegation()).unwrap(),
         ("delegate", "no-session") => delegate(&|i| i.session_id = Some("none".into())),
         ("delegate", "session-closed") => {
