@@ -7,6 +7,9 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+- The crate `runbook` links Loom 0.63.0 (`b0a0dfda31f722d5b38208f6fb9d90edacd7165b`, tag `0.63.0`; replaces `112a97e1`, Loom 0.62.1) for every Loom crate, one git rev (`docs/library-entries.md`, row R). Loom 0.63.0 moves Substrate from 0.24.0 to 0.29.0, whose host builds for `x86_64-unknown-linux-musl` (`b10x-substrate-host` 0.24.0 called `nix::fcntl::renameat2`, which nix defines for glibc only), and adds `exec_subpaths` and `exec_denied_paths` to Substrate's `AppliedConfinement`; `runbook` builds and matches no such record, so no code changes with it.
+
 ## [0.13.0] - 2026-11-26
 
 Three entries are marked breaking: a daemon run whose decider kind is `model` reaches its model only through the
