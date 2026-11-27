@@ -336,9 +336,17 @@ At submit, after the route is resolved and before anything is written:
   step ends. A step that exits 0 with its products goes on, the run's record naming the failed calls
   (`runbook.model-calls-failed`); a step that fails names the first failed call as the first cause of the run's
   failure. The protocol decides what a failed step does, as for any failed program; a failed decider call leaves its
-  decision open for a person, with that cause on it (story `a-recovered-call-does-not-fail-the-run`).
+  decision open for a person, with that cause on it (story `a-recovered-call-does-not-fail-the-run`). A step whose
+  program exits with a status its bindings take as a result (not one their `exits.error` lists) is no failed step
+  while the protocol goes on: its failed calls are named, not the run's cause. A failed call booked after its step
+  ended (a later start of the same action included) never fails the run, a refusal of the route included: it is named
+  under its own step (story `a-call-booked-after-its-step-ended-does-not-fail-the-run`).
+- A caller that hangs up on its call ends it at the gateway: the relay closes its request within a second and books
+  the call `call-abandoned` (`caller-hung-up`) at what the answer reported so far, else at its reservation; it is no
+  failed call (`docs/engine.md`, "A gateway").
 - The gateway's refusals of the route (`model-unknown`, `wire-not-served`, `credential-*`) and its `spend-ceiling`
-  fail the step at once with the cause `route-unavailable`, whatever its program does after.
+  fail the step at once with the cause `route-unavailable`, whatever its program does after, when they are booked
+  while that step runs; one booked after its step ended is a late call (above).
 - Runbook never re-sends a call to another route, and never changes the route of a running run.
 
 ### 5. Booking and caps
