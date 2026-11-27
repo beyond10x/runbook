@@ -421,7 +421,8 @@ A **delegation** asks the daemon to do a piece of agent work on a named route:
 
 ```json
 {"request": "<text>", "model_route": "<route>", "protocol": "<runbook, optional>",
- "workspace": "<absolute path under a context root, optional>", "settings": {}, "idempotency_key": "<optional>"}
+ "workspace": "<absolute path under a context root, optional>", "workspace_exclude": ["<name or path, optional>"],
+ "settings": {}, "idempotency_key": "<optional>"}
 ```
 
 - HTTP: `POST /daemon/commands/delegate` answers 202 with `run_id`, the path taken (section 9) and the `Location`

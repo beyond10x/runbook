@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "18d870717162e984091f0ef8295f691f620052b91a1294975b9883c1aaa81c49",
-    "contract_digest": "2f23b7fe2f2d84f5a8f022d48ae0d939286414a80e08cfd89c63f4539fcba86c",
+    "spec_digest": "5847bc8002b6d5c018f2ee5b3deb74ecd663a2c5d6bf47b0256d1181b7e1d77c",
+    "contract_digest": "4f61448487c057cd23713ab88c1349fdfd5716a11d3784d772175d1f78d7287f",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -350,6 +350,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -672,6 +676,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -1165,6 +1173,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -1835,6 +1847,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -2762,6 +2778,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -3228,6 +3248,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -4066,6 +4090,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -4704,6 +4732,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -5442,6 +5474,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -6151,6 +6187,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -6828,6 +6868,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -7237,6 +7281,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -7926,6 +7974,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DecisionRequestId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -8634,6 +8686,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -9123,6 +9179,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DelegationPath"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -9812,6 +9872,10 @@
         },
         {
           "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
+        },
+        {
+          "kind": "type",
           "name": "sdc.daemon.IdempotencyKey"
         },
         {
@@ -10215,6 +10279,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.DeciderKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",
@@ -11357,6 +11425,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.EventKind"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.daemon.ExcludeEntry"
         },
         {
           "kind": "type",

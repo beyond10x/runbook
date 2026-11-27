@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ExcludeEntry.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ExcludeEntry",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e1488a4f7fb75edb19d102e3443aa21bb567ea9ceec133ce9148aa2168ecc807",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ExcludeEntry": {
+      "title": "ExcludeEntry",
+      "description": "An entry of the exclude list of a context copy: a name matched at any depth (target/, fixtures) or a relative path from the context root (docs/big/); one that ends in / matches a directory only, one without it a directory or a file, and a name matches a whole name only. An absolute path, an empty, . or .. part, a NUL, more than 200 characters or more than 64 entries are refused before anything is written (400), naming the member and the entry's place, never its value.",
+      "x-ess-name": "sdc.daemon.ExcludeEntry",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count >= 1",
+        "value.count <= 200"
+      ]
+    }
+  }
+}
