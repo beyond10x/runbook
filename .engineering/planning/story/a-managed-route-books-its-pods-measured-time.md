@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:a-managed-route-books-its-pods-measured-time
 kind: story
-status: draft
+status: active
 title: A managed route books its pod's measured time
 summary: A run on a managed route books its share of the pod's measured time at the gateway's price per hour against the route's daily cap
 relations:
 - informed_by: story:a-wake-is-booked-only-when-it-succeeds
-revision: 1
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T13:46:47Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T13:46:48Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
@@ -40,7 +43,11 @@ replacing `docs/model-routes.md` D-3 "books wakes only".
   (t1 - t0) times the gateway's price per hour against the route's daily cap, beside the wake's figure.
 - Two runs that used the same pod in that time each book their share of it; the shares add up to the pod's measured
   time at its price.
-- A pod that never became ready books no time.
+- A pod that never became ready books no time, and a run that takes no route (`model_route_not_taken`) books none.
+- A run the daemon ends `orphaned`, at its stop or at a restart that found it live, books the pod's time up to that
+  orphan mark: the time no daemon read the pod counts against the cap, never less (decision D10 of the unit's
+  coordinator, 2026-11-27).
+- Only a status the gateway answered tells the pod ready or not: a failed status read changes nothing.
 - The daily cap counts wakes and pod time together: a run that would pass it waits for its route as a run past the
   wake cap does today.
 - `docs/model-routes.md` D-3 and section 5 say what is booked.
@@ -50,4 +57,12 @@ replacing `docs/model-routes.md` D-3 "books wakes only".
 
 - Built in one unit with story `a-wake-is-booked-only-when-it-succeeds`: the wake's booking and the pod's time read
   the same answers of the gateway.
-- Not in scope: a price runbook declares for the pod itself; the gateway's own spend ceilings.
+- Where the price comes from (found while building, 2026-11-27): the gateway serves its `price_per_hour_usd` on no
+  route a client reads (its wake, status and model-list answers carry none; only its dashboard's account panel holds a
+  pod's `cost_per_hour_usd`, and only for a provider whose key is a keychain reference). So the route repeats the
+  figure in `runbook.toml` as `price_per_hour_micro_usd`, a managed route's key; the unit's brief named that way for a
+  gateway that does not expose the price. This replaces the earlier line "not in scope: a price runbook declares for
+  the pod itself". A gateway route that serves a model's price per hour would let the key go.
+- Where the pod's stop comes from: the gateway sends no stop event; the daemon reads the route's status every 5 s of
+  its clock while a started run takes the route, and the first read of the pod as not ready ends the runs' use.
+- Not in scope: the gateway's own spend ceilings; stopping a pod or a run already on it when the cap is reached.

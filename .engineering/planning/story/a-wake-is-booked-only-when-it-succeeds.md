@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:a-wake-is-booked-only-when-it-succeeds
 kind: story
-status: draft
+status: active
 title: A wake is booked only when it succeeds
 summary: A refused or failed wake of a managed route books nothing against the daily wake cap
 relations:
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 2
+revision: 5
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T13:46:46Z", actor: "agent:runbook", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-27T13:46:47Z", actor: "agent:runbook", revision: 4}
 ---
 ## Outcome
 
@@ -35,4 +38,7 @@ for this too.
 - A stand-in gateway that answers the first two wakes 503 and the third 202: the run's record shows the wake figure
   booked once, the run starts, and a fourth run of the same day still gets its wake under the cap.
 - A wake answered 5xx or `no-capacity` books 0, and the run's record names the gateway's code.
+- A wake whose run was cancelled while it was out books by the answer that came after: a 202 is booked (the daemon's
+  journal line `route.wake-answered`, as a closed run takes no event) and a later run sees it against the cap, a 503
+  books 0; a wake out when the daemon was killed has no answer and stays booked after the restart (decision D11).
 - The tests make no model call, start no pod and use no network beyond loopback.

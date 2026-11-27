@@ -41,8 +41,9 @@ const WAIT_SLACK: Duration = Duration::from_millis(250);
 const TOKEN_LIMIT: usize = sdc_tools::gateway::TOKEN_LIMIT;
 
 const GATEWAY_MEMBERS: [&str; 2] = ["base_url", "token_file"];
-const ROUTE_MEMBERS: [&str; 9] = ["gateway", "model", "kind", "start_wait_seconds", "price_in_micro_usd_per_mtok", "price_out_micro_usd_per_mtok", "wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd"];
-const WAKE_MEMBERS: [&str; 3] = ["wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd"];
+const ROUTE_MEMBERS: [&str; 10] = ["gateway", "model", "kind", "start_wait_seconds", "price_in_micro_usd_per_mtok", "price_out_micro_usd_per_mtok", "wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd", "price_per_hour_micro_usd"];
+/// The keys of a managed route only: its wake and its pod's price, both booked against its daily cap.
+const WAKE_MEMBERS: [&str; 4] = ["wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd", "price_per_hour_micro_usd"];
 const POLICY_MEMBERS: [&str; 2] = ["default", "classifier"];
 /// The members a route never has: what reaches a model is its gateway's.
 const ROUTE_REFUSED: [&str; 4] = ["token", "token_file", "base_url", "api_key"];
@@ -96,6 +97,9 @@ pub struct Wake {
     pub on_submit: bool,
     pub daily_cap_micro_usd: Option<u64>,
     pub cost_micro_usd: Option<u64>,
+    /// The pod's price per hour (`price_per_hour_micro_usd`): the time the pod ran for the route's runs books at it
+    /// against the daily cap beside the wakes (`docs/model-routes.md`, section 5). None: the pod's time books nothing.
+    pub price_per_hour_micro_usd: Option<u64>,
 }
 
 /// A gateway: an address and, once [`RouteTable::read_tokens`] ran, the token of its token file. The token is
@@ -296,7 +300,12 @@ fn route_of(name: &str, table: &Map<String, Value>, gateways: &BTreeMap<String, 
         Some(Value::Bool(true)) => true,
         Some(_) => return Err(format!("{at}.wake_on_submit: true or false")),
     };
-    let wake = Wake { on_submit, daily_cap_micro_usd: whole(table, &at, "wake_daily_cap_micro_usd")?, cost_micro_usd: whole(table, &at, "wake_cost_micro_usd")? };
+    let wake = Wake {
+        on_submit,
+        daily_cap_micro_usd: whole(table, &at, "wake_daily_cap_micro_usd")?,
+        cost_micro_usd: whole(table, &at, "wake_cost_micro_usd")?,
+        price_per_hour_micro_usd: whole(table, &at, "price_per_hour_micro_usd")?,
+    };
     if on_submit {
         // the wake ships off: it turns on only behind a daily cap, and every wake books against it
         if !wake.daily_cap_micro_usd.is_some_and(|c| c > 0) {
@@ -467,6 +476,22 @@ impl RouteTable {
                 }
             }
         })
+    }
+
+    /// The phase of the model of the managed or local route `name` as a status the gateway answered gives it, read as
+    /// [`RouteTable::readiness`] reads it: `ready` when the status says the model is ready (its `phase`, else `callable`),
+    /// else the phase it gave (`unknown` when it gave none). None when no status was read: a name that is not declared, a
+    /// hosted route, a gateway that does not answer, is not ready or does not list the alias, a status route that failed.
+    pub fn pod_phase(&self, name: &str, until: Instant) -> Option<String> {
+        let route = self.routes.get(name).filter(|r| r.kind.has_model_status())?;
+        let gateway = self.gateways.get(&route.gateway)?;
+        let Reach::Ready { models, of_all, of_model } = read_gateway(self, &route.gateway, gateway, until) else { return None };
+        if !models.contains_key(&route.alias) {
+            return None;
+        }
+        let status = of_all.get(&route.alias).or_else(|| of_model.get(&route.alias))?;
+        let ready = status.phase.as_deref().map_or(status.callable == Some(true), |p| p == "ready");
+        Some(if ready { "ready".to_owned() } else { status.phase.clone().unwrap_or_else(|| "unknown".to_owned()) })
     }
 
     /// Whether the file declares no gateway and no route.

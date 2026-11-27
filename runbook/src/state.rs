@@ -171,6 +171,16 @@ pub struct RunEvent {
     pub at: String,
 }
 
+/// The gateway's answer to a wake of a run that was closed (cancelled, ended) before the answer came: a line of the
+/// daemon's own in the journal (`route.wake-answered`), because a closed run takes no event. `record` is the record the
+/// run event `runbook.route-wake-answered` would have held: route, status, code.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WakeAnswer {
+    pub run_id: String,
+    pub record: Value,
+    pub at: String,
+}
+
 /// The outcome of a run whose wait for its route is over (`EndRouteWait`).
 pub const STOPPED_ON_ROUTE: &str = "stopped: route";
 
@@ -213,6 +223,9 @@ pub enum Fact {
     /// The last live run ended while the daemon drained.
     #[serde(rename = "daemon.drained")]
     DaemonDrained { at: String },
+    /// The gateway answered a wake after the wake's run was closed.
+    #[serde(rename = "route.wake-answered")]
+    RouteWakeAnswered(WakeAnswer),
 }
 
 /// All of the state, for comparing two states.
@@ -223,6 +236,7 @@ pub struct Snapshot<'a> {
     pub runs: &'a [Run],
     pub decisions: &'a [DecisionRequest],
     pub events: &'a [RunEvent],
+    pub wake_answers: &'a [WakeAnswer],
 }
 
 pub struct State {
@@ -241,6 +255,8 @@ pub struct State {
     decision_index: HashMap<String, usize>,
     events: Vec<RunEvent>,
     events_of_run: HashMap<String, Vec<usize>>,
+    /// The answers to wakes of runs closed before them (`route.wake-answered`), in the order of the journal.
+    wake_answers: Vec<WakeAnswer>,
     /// The runs this process took up (past the wait for their serial key) whose run thread has not
     /// returned yet: the runtime may still run one of them after it left the live states (a cancel
     /// moves the run at once). Not journaled: a new start has none.
@@ -293,6 +309,7 @@ impl State {
             decision_index: HashMap::new(),
             events: vec![],
             events_of_run: HashMap::new(),
+            wake_answers: vec![],
             taken_up: HashSet::new(),
             changes: tokio::sync::watch::channel(0).0,
             clock,
@@ -478,6 +495,7 @@ impl State {
             }
             Fact::DaemonDraining { .. } => self.draining = true,
             Fact::DaemonDrained { .. } => {}
+            Fact::RouteWakeAnswered(answer) => self.wake_answers.push(answer.clone()),
         }
         Ok(())
     }
@@ -498,7 +516,7 @@ impl State {
     }
 
     pub fn snapshot(&self) -> Snapshot<'_> {
-        Snapshot { daemon: &self.daemon, sessions: &self.sessions, runs: &self.runs, decisions: &self.decisions, events: &self.events }
+        Snapshot { daemon: &self.daemon, sessions: &self.sessions, runs: &self.runs, decisions: &self.decisions, events: &self.events, wake_answers: &self.wake_answers }
     }
 
     pub fn daemon(&self) -> Option<&DaemonRow> {
@@ -582,6 +600,11 @@ impl State {
     /// only, never of the whole record.
     pub fn events_of(&self, run_id: &str) -> impl Iterator<Item = &RunEvent> {
         self.events_of_run.get(run_id).into_iter().flatten().map(|i| &self.events[*i])
+    }
+
+    /// The answers to wakes of runs closed before them (`route.wake-answered`), in the order of the journal.
+    pub fn wake_answers(&self) -> &[WakeAnswer] {
+        &self.wake_answers
     }
 
     /// Events with a position above `after`, in position order; of one run, of one session, or of all.

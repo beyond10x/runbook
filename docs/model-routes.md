@@ -194,6 +194,7 @@ price_out_micro_usd_per_mtok = 0  # optional: per million output tokens
 wake_on_submit = false        # managed only; true is refused unless the cap and the cost below are above 0 (D-5)
 wake_daily_cap_micro_usd = 0  # managed only; the most wakes may book per day
 wake_cost_micro_usd = 0       # managed only; what one wake books against that cap
+price_per_hour_micro_usd = 0  # managed only, optional; the pod's price per hour: its time for runs books against that cap
 
 [routes.claude]
 gateway = "default"
@@ -310,7 +311,13 @@ At submit, after the route is resolved and before anything is written:
    when it accepts a run on a stopped managed route, and books `wake_cost_micro_usd` against
    `wake_daily_cap_micro_usd` for the day. `wake_on_submit = true` without a cap above 0 is refused at start by
    name, and so is one without a `wake_cost_micro_usd` above 0 (a wake that books nothing never meets the cap). A wake the day's cap does not cover is not sent: the run waits as in 3 and the run record says
-   "wake cap reached". A run within the wait of a wake sent for the same route joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling, and so it ends every run that joined that wake. A `wake_cost_micro_usd` above the cap is refused at start by name. The shipped
+   "wake cap reached". A run within the wait of a wake sent for the same route that may still start the model (taken, or out or failed while its run lives) joins it and sends and books none. A `spend-ceiling` answer ends the run `stopped: route` naming the ceiling, and so it ends every run that joined that wake. A `wake_cost_micro_usd` above the cap is refused at start by name.
+   A wake books only when the gateway took it (a `2xx`); a `4xx`, a `5xx` or no answer books nothing, the run record
+   naming the gateway's code, and a `5xx` other than `spend-ceiling` or no answer is sent again after 30 s while the
+   model is still `stopped`, within the run's wait and never past it (story `a-wake-is-booked-only-when-it-succeeds`).
+   The answer to a wake whose run was cancelled while it was out books the same way, and a wake out when the daemon
+   was killed stays booked (decision D11).
+   The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing
    upstream shows as a failed call (section 4). A hosted route's `callable` of `/v1/status` is shown in the view `routes`
@@ -359,8 +366,22 @@ At submit, after the route is resolved and before anything is written:
   written to the prompt cache, booked in fields of their own beside `input_tokens`); without, `cost_known: false` and
   the call books its reservation (the step's largest while its step runs, else `max_call_micro_usd`), fixed as the
   call is admitted, as the ledger does today for a call of unknown cost. A local route costs 0 unless prices are
-  declared; an answer with no usage costs 0 at declared prices and books the reservation on a route without them. A managed pod's hourly cost is the gateway's (its daily and total spend ceilings);
-  Runbook books wakes only (section 3).
+  declared; an answer with no usage costs 0 at declared prices and books the reservation on a route without them.
+- A managed pod's time (D-3, the operator's pick, 2026-11-27 12:35 CET; story
+  `a-managed-route-books-its-pods-measured-time`): a managed route that declares `price_per_hour_micro_usd` books the
+  time its pod ran for its runs at that price, beside its wakes, against `wake_daily_cap_micro_usd`, the route's
+  daily cap of wakes and pod time. A run uses the pod from its start (the daemon starts it only once the route was
+  read ready) to its end, or to the first read of the pod as not ready while it lives (the daemon reads the route
+  every 5 s of its clock while a run uses it, event `runbook.route-pod-phase`); time after the run's end, while the
+  pod waits for its idle stop, is booked to no run. The split rule: the pod's time is cut at every start and end of
+  a run's use and each piece is split equally over the runs that used the pod in it (a millisecond a piece cannot
+  split goes to the runs first in submit order, one each); a run books its milliseconds at the price, rounded up to
+  the micro-USD, in the run event `runbook.route-pod-time` just before it ends. Two runs that share 30 minutes at
+  3.00 USD per hour book 0.75 USD each. A pod that never became ready for a run books no time, nor does a run that takes no route. A run the daemon ends `orphaned` (at its stop or at a restart) used the pod up to that mark: the time no daemon read it counts, never less. A wake that the
+  rest of the day's cap of wakes and pod time does not cover is not sent, and the run waits as a run past the wake
+  cap did (section 3); the cap stops no pod and no run already on it, which the gateway's own spend ceilings bound.
+  The price is the route's: the gateway serves the `price_per_hour_usd` of its document on no route a client reads,
+  so the operator repeats it in micro-USD in `runbook.toml`.
 - The run's `max_llm_calls` and `cap_micro_usd`, and the daemon's daily spend ledger, count these lines. A cap that
   is reached stops the run as today.
 - A tool that a program starts and that calls a model through the route file (section 11) is booked by the relay
@@ -588,7 +609,8 @@ Runbook's route `kind` maps onto these: `managed` is a managed RunPod model, `ho
 
 - Today a model that declares `token_price` gets `cost_usd`, a USD string, in its call record (`GET /v1/calls/{id}`).
   A managed model declares `price_per_hour_usd` for the spend check; the dashboard snapshot has the RunPod account's
-  balance and spend rate.
+  balance and spend rate. No route a client reads serves that price (the wake, the status and the model list answer
+  none), so a Runbook route repeats it as `price_per_hour_micro_usd` (section 5).
 - Runbook prices a call itself, as D-3 says: the price per million tokens declared on its route, else the
   reservation. Runbook does not read the gateway's `cost_usd` yet.
 
@@ -791,7 +813,9 @@ consumer's test 7).
   declares the routes it needs by name or requirements, and the daemon admits or refuses them (section 2).
 - **D-2 A tool's own model calls:** a tool that uses the route file is booked by the relay; one that reaches a model
   by another path is not.
-- **D-3 Cost:** a declared price per million tokens on the route, else the reservation.
+- **D-3 Cost:** a declared price per million tokens on the route, else the reservation; a managed route also books
+  its pod's measured time at its price per hour against its daily cap, split over the runs that used the pod
+  (section 5). This replaces "books wakes only": the operator's pick, 2026-11-27 12:35 CET.
 - **D-4 Confined runs:** routes serve `local` runs only until `story:gateway-under-substrate-confinement` is
   decided.
 - **D-5 Who starts the pod:** "B now, A later": the wake is built and shipped off; a run on a stopped managed route
