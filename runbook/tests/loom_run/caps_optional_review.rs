@@ -219,6 +219,7 @@ fn the_printed_tree_run_of_a_handoff_is_bounded_to_one_step_when_a_cap_is_named(
 #[test]
 fn guard_a_copy_rewritten_to_name_the_model_tool_gets_no_login_and_its_call_is_booked() {
     let w = World::new("capsrev-guard-login");
+    w.fake.record_env();
     bindings(&w, NO_MODEL);
     let rewrite = format!("printf '%s' '{}' > bindings/sdc.yaml\n", MODEL_BUDGET.replace('\'', ""));
     let xdg = w.root.join("xdg").display().to_string();
@@ -242,7 +243,7 @@ fn guard_a_copy_rewritten_to_name_the_model_tool_gets_no_login_and_its_call_is_b
     }
     assert!(hits.is_empty(), "the login file or its path is in the run directory: {hits:?}");
     for call in w.fake.calls() {
-        assert!(!call.env.iter().any(|(k, v)| v.contains("credentials.json") || v.contains("LOGIN-FILE-MARKER") || k == "ANTHROPIC_API_KEY"), "the login or a key reached Loom: {:?}", call.argv);
+        assert!(!call.env().iter().any(|(k, v)| v.contains("credentials.json") || v.contains("LOGIN-FILE-MARKER") || k == "ANTHROPIC_API_KEY"), "the login or a key reached Loom: {:?}", call.argv);
     }
 }
 

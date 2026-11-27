@@ -138,6 +138,7 @@ fn chain_world(tag: &str) -> World {
 #[test]
 fn a_gateway_reaches_claude_through_a_file_in_the_private_directory_and_leaves_no_token_behind() {
     let w = chain_world("gateway-chain");
+    w.fake.record_env();
     settings(&w, json!({"gateway": gateway()}));
     w.fake.hook("tree_run", "1", &look_and_start_the_node(&w, "r1", TOKEN));
     let o = w.run(&w.args("r1", 1_000_000));
@@ -169,7 +170,7 @@ fn a_gateway_reaches_claude_through_a_file_in_the_private_directory_and_leaves_n
     assert!(!String::from_utf8_lossy(&o.stdout).contains(TOKEN) && !stderr(&o).contains(TOKEN));
     // Loom's contract: nothing of the gateway in the environment of a program Loom starts.
     for call in w.fake.calls() {
-        assert!(call.env.iter().all(|(k, v)| !k.starts_with("ANTHROPIC_") && !k.starts_with("SDC_GATEWAY") && !v.contains(TOKEN)), "{:?}", call.env);
+        assert!(call.env().iter().all(|(k, v)| !k.starts_with("ANTHROPIC_") && !k.starts_with("SDC_GATEWAY") && !v.contains(TOKEN)), "{:?}", call.env());
     }
     // The record says only that a gateway was named; the directory is gone.
     let recorded: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/settings.json")).unwrap()).unwrap();

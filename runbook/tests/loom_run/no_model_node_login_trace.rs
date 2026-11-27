@@ -42,6 +42,7 @@ actions:
 #[test]
 fn a_run_without_a_model_node_leaves_no_trace_of_the_login_file() {
     let w = World::new("login-trace");
+    w.fake.record_env();
     std::fs::write(w.root.join("bindings/sdc.yaml"), NO_MODEL).unwrap();
     w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
     w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
@@ -56,7 +57,7 @@ fn a_run_without_a_model_node_leaves_no_trace_of_the_login_file() {
         assert!(found.is_empty(), "files of the run directory hold {needle}: {found:?}");
         for call in w.fake.calls() {
             assert!(!call.argv.iter().any(|a| a.contains(needle)), "{needle} is in the argv of a call of Loom: {:?}", call.argv);
-            assert!(!call.env.iter().any(|(k, v)| k.contains(needle) || v.contains(needle)), "{needle} is in the environment of a call of Loom");
+            assert!(!call.env().iter().any(|(k, v)| k.contains(needle) || v.contains(needle)), "{needle} is in the environment of a call of Loom");
         }
         assert!(!String::from_utf8_lossy(&o.stdout).contains(needle) && !stderr(&o).contains(needle), "{needle} is on a stream of the runner");
     }
