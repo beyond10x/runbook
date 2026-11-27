@@ -441,9 +441,15 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   call's reservation with `cost_known: false` (`docs/model-routes.md`, section 5): in a step, the largest
   reservation the step holds; otherwise (a call of the decider, or a step that holds none) what one call of the
   decider may cost (`max_call_micro_usd`, its `max_budget_usd`), at most what the run's spend cap has left.
-- A call is exchanged with the gateway and booked apart from its caller: a caller that hangs up before the
-  answer does not stop a call that was sent from being booked, once. An answer that breaks off after its head
-  ran on the gateway: it is booked at its tokens and prices as read, else at its reservation.
+- A call is exchanged with the gateway and booked apart from its caller, once. A caller that hangs up before the
+  answer has ended (its own timeout killed it, its run was cancelled) ends the call at the gateway too: the relay
+  closes its request to the gateway within a second, before the gateway's head or while the answer streams, so a
+  managed route does not go on generating for nobody. The call is booked with the `cause` `call-abandoned` and
+  the `code` `caller-hung-up`, at the tokens the answer reported so far and the route's prices, else at its
+  reservation (`cost_known: false`); an abandoned call is no failed call of its step (story
+  `a-call-booked-after-its-step-ended-does-not-fail-the-run`; `runbook/src/relay.rs`, `exchange` and `answer`). An
+  answer that breaks off after its head ran on the gateway: it is booked at its tokens and prices as read, else at
+  its reservation.
 - A gateway that refuses the call, or does not answer, fails the call: the refusal is passed back unchanged
   (a connection that fails answers `502` `route-unavailable`), and the line and the event carry a `cause`, the
   route, the gateway's `code` (`connection-failed` for no answer, `answer-broken` for an answer that broke off),
@@ -460,10 +466,14 @@ such a run goes through the daemon's relay, never to the gateway (`runbook/src/r
   passed to the client, which may retry, as Claude Code does. The run ends as the step ends: a step whose program
   exits 0 with its products goes on, and the run's record names the failed calls with one event
   `runbook.model-calls-failed` (the step, and per call the route, the `gateway_call`, the `cause`, the `code`, the
-  `detail` and the `error`), one event per step: a call left in flight by an earlier step and booked while a later
-  one runs is named under its own step, and one that ends after the last step was booked is named when the run's
-  calls are closed; a step whose program failed ends the run with its own first failed call as its first cause, `<cause>: route <route> (chosen by <source>) failed the call: <code>: <detail>` (`refused the call` for
-  `call-refused`) (story `a-recovered-call-does-not-fail-the-run`).
+  `detail` and the `error`), one event per step; a step whose program failed ends the run with its own first failed
+  call as its first cause, `<cause>: route <route> (chosen by <source>) failed the call: <code>: <detail>` (`refused
+  the call` for `call-refused`) (story `a-recovered-call-does-not-fail-the-run`). A failed call booked after its step
+  ended (its program had exited, and a process of it kept the call open) never fails the run: its step is over and
+  went on. It is named under its own step with one event `runbook.model-calls-failed` ("the call ended after its step
+  had ended") when the run's calls are next recorded, while a later step runs, between steps, or when the run's calls
+  are closed (story `a-call-booked-after-its-step-ended-does-not-fail-the-run`; `runbook/src/engine/gate.rs`,
+  `RelayBooking::book`).
 - What stops the run at once: the gateway's refusals of the route (`model-unknown`, `wire-not-served`,
   `credential-absent`, `credential-malformed`, `credential-rejected`) and its `spend-ceiling` fail the step they
   came in with `route-unavailable`, the route, the code and the `source`, whatever its program does after; a call

@@ -19,6 +19,10 @@
 //! the run by itself unless the gateway refused the route or its spend ceiling stopped it ([`stops_the_run`]): its
 //! client may retry or go on, and the run ends as the call's step ends. The relay never sends a call to another route.
 //!
+//! A caller that hangs up before its answer has ended (its own timeout killed it) ends the call: the relay closes its
+//! request to the gateway, before the gateway's head or while the answer streams, and books the call with the cause
+//! [`CALL_ABANDONED`] at what the answer reported so far, else at its reservation. It is no failed call of its step.
+//!
 //! The run's processes get the relay through the route file ([`RouteFile`]): `route.json`, `runbook.route/1`, mode
 //! 0600 in the run's private directory, named by [`ROUTE_FILE_VARIABLE`]. It holds the relay's address, the run's
 //! token and the roles; the gateway's credential never leaves runbookd.
@@ -79,6 +83,15 @@ pub const MODEL_CALL_EVENT: &str = "runbook.model-call";
 const CONNECTION_FAILED: &str = "connection-failed";
 /// The code of a call whose answer broke off after its head: the call ran and is booked at its cost.
 const ANSWER_BROKEN: &str = "answer-broken";
+/// The cause of a call whose caller hung up before its answer had ended: the relay closed it at the gateway. It is no
+/// failed call of its step (not [`ROUTE_UNAVAILABLE`] or [`CALL_REFUSED`]): its caller gave it up.
+pub const CALL_ABANDONED: &str = "call-abandoned";
+/// The code of an abandoned call ([`CALL_ABANDONED`]): the call was sent and ran on the gateway for a while, so it is
+/// booked as an answer that broke off is ([`charge`]).
+const CALLER_HUNG_UP: &str = "caller-hung-up";
+/// How long the relay goes on reading an answer that streams after its caller hung up, in case the answer was at its
+/// end: an answer that ends in this time is booked as answered, else the call is closed at the gateway.
+const HUNG_UP_GRACE: Duration = Duration::from_millis(200);
 
 /// The most bytes of a call's body the relay reads.
 const MAX_CALL_BYTES: usize = 64 * 1024 * 1024;
@@ -402,20 +415,24 @@ impl Relay {
         let sent = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
         let call = Call { run: run.to_owned(), step: booking.step(), role, route, source, wire, booking, reserved: 0 };
         // The caps, the exchange with the gateway and the booking run in a task of their own: a caller that hangs up
-        // drops this handler and not the call, so a call that was sent is booked, once.
+        // drops this handler and not the task, which sees the hang-up, closes the call at the gateway and books it, once.
         let (answered, answer) = tokio::sync::oneshot::channel::<Response>();
         tokio::spawn(async move {
+            let mut answered = answered;
             if answered.is_closed() {
                 return;
             }
-            let _ = answered.send(exchange(call, passed, sent).await);
+            let response = exchange(call, passed, sent, &mut answered).await;
+            let _ = answered.send(response);
         });
         answer.await.unwrap_or_else(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the relay lost the call"))
     }
 }
 
-/// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once.
-async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) -> Response {
+/// Takes `call` against the run's caps, sends it and answers it; every call that is sent is booked once. A caller that
+/// hangs up (`caller` closes) before the gateway's head ends the call: its request to the gateway is dropped, which
+/// closes that connection, and the call is booked as abandoned ([`CALL_ABANDONED`]).
+async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>, caller: &mut tokio::sync::oneshot::Sender<Response>) -> Response {
     let admitting = call.booking.clone();
     // the reservation of a call of unknown cost is fixed as the call is admitted (the step's largest while its step runs),
     // never read when the call is booked: a call answered after its step ended books what its step held
@@ -424,7 +441,15 @@ async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>) 
         Ok(Err(detail)) => return error(StatusCode::TOO_MANY_REQUESTS, CAP_REACHED, &format!("the run reached a cap, nothing was sent: {detail}")),
         Err(_) => return error(StatusCode::INTERNAL_SERVER_ERROR, "relay-failed", "the run's caps could not be read"),
     }
-    match open_upstream(&call.route, call.wire, &passed, &sent).await {
+    let opened = tokio::select! {
+        opened = open_upstream(&call.route, call.wire, &passed, &sent) => opened,
+        () = caller.closed() => {
+            let line = call.line(None, &Usage::default(), Some(Failed::abandoned()));
+            call.book(line).await;
+            return error(StatusCode::INTERNAL_SERVER_ERROR, CALL_ABANDONED, "the caller hung up");
+        }
+    };
+    match opened {
         Err(why) => {
             let line = call.line(None, &Usage::default(), Some(Failed::unavailable(CONNECTION_FAILED, why.clone())));
             call.book(line).await;
@@ -574,7 +599,7 @@ pub fn cost_of(route: &ResolvedRoute, usage: &Usage) -> Option<u64> {
 pub fn charge(route: &ResolvedRoute, usage: &Usage, failed: Option<&str>, reserved: u64) -> (u64, bool) {
     let priced = route.price_in_micro_usd_per_mtok.is_some() || route.price_out_micro_usd_per_mtok.is_some();
     match (failed, cost_of(route, usage)) {
-        (Some(code), _) if code != ANSWER_BROKEN => (0, true),
+        (Some(code), _) if code != ANSWER_BROKEN && code != CALLER_HUNG_UP => (0, true),
         (None, _) if usage.is_none() => if priced { (0, true) } else { (reserved, false) },
         (_, Some(cost)) => (cost, true),
         (_, None) => (reserved, false),
@@ -602,6 +627,12 @@ impl Failed {
         let code = gateway_code(status, body, secrets);
         let cause = if recoverable(status, &code) { CALL_REFUSED } else { ROUTE_UNAVAILABLE };
         Failed { cause, code, detail: format!("the gateway answered {status}"), error: error_text(body, secrets) }
+    }
+
+    /// A call whose caller hung up before its answer had ended: the relay closed it at the gateway ([`CALL_ABANDONED`]).
+    fn abandoned() -> Failed {
+        let detail = "the caller closed its connection before the answer had ended; the relay closed the call at the gateway".to_owned();
+        Failed { cause: CALL_ABANDONED, code: CALLER_HUNG_UP.to_owned(), detail, error: None }
     }
 
     /// A call answered with a status below 400 whose stream ended in an error event ([`stream_error`]): the upstream
@@ -890,21 +921,37 @@ fn gateway_code(status: u16, body: &[u8], secrets: &[&str]) -> String {
 }
 
 /// The answer to the caller: the gateway's status, headers and body, streamed as they come; the call is booked
-/// when the gateway's answer has ended, whether the caller read it all or not.
+/// when the gateway's answer has ended, or, when the caller hangs up before that, closed at the gateway and booked as
+/// abandoned ([`CALL_ABANDONED`]).
 fn answer(call: Call, upstream: Upstream) -> Response {
     let Upstream { status, headers, mut body } = upstream;
     let call_id = headers.iter().find(|(n, _)| n == "x-llm-gateway-call").map(|(_, v)| v.clone());
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Bytes, std::io::Error>>(16);
     tokio::spawn(async move {
         let mut kept = Vec::new();
+        let keep = |kept: &mut Vec<u8>, bytes: &[u8]| {
+            if kept.len() < KEEP_ANSWER_BYTES {
+                kept.extend_from_slice(&bytes[..bytes.len().min(KEEP_ANSWER_BYTES - kept.len())]);
+            }
+        };
         let mut broken = None;
+        // the caller hung up: its connection closed, which drops the stream it was reading
+        let mut gone = false;
         loop {
-            match body.next().await {
+            let next = tokio::select! {
+                next = body.next() => next,
+                () = tx.closed() => {
+                    gone = true;
+                    break;
+                }
+            };
+            match next {
                 Ok(Some(bytes)) => {
-                    if kept.len() < KEEP_ANSWER_BYTES {
-                        kept.extend_from_slice(&bytes[..bytes.len().min(KEEP_ANSWER_BYTES - kept.len())]);
+                    keep(&mut kept, &bytes);
+                    if tx.send(Ok(Bytes::from(bytes))).await.is_err() {
+                        gone = true;
+                        break;
                     }
-                    let _ = tx.send(Ok(Bytes::from(bytes))).await;
                 }
                 Ok(None) => break,
                 Err(e) => {
@@ -914,9 +961,27 @@ fn answer(call: Call, upstream: Upstream) -> Response {
                 }
             }
         }
+        // A caller that hung up may have had all it wanted of an answer that was at its end: the answer is read on for a
+        // moment, and one that ends then is booked as answered. Otherwise the call is abandoned: its connection to the
+        // gateway is closed at once, before the booking, so the gateway stops it.
+        let abandoned = gone && {
+            let rest = tokio::time::timeout(HUNG_UP_GRACE, async {
+                loop {
+                    match body.next().await {
+                        Ok(Some(bytes)) => keep(&mut kept, &bytes),
+                        Ok(None) => return true,
+                        Err(_) => return false,
+                    }
+                }
+            });
+            !matches!(rest.await, Ok(true))
+        };
+        drop(body);
         let usage = usage_of(&kept);
         let secrets = [call.route.token.as_deref().unwrap_or("")];
-        let failed = if status >= 400 {
+        let failed = if abandoned {
+            Some(Failed::abandoned())
+        } else if status >= 400 {
             Some(Failed::answered(status, &kept, &secrets))
         } else {
             broken.map(|why| Failed::unavailable(ANSWER_BROKEN, why)).or_else(|| Failed::streamed(&kept, &secrets))

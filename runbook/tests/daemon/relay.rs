@@ -390,6 +390,107 @@ fn a_call_whose_caller_hangs_up_before_the_gateway_answers_is_still_booked_once(
     assert_eq!(lines.len(), 1, "{lines:?}");
 }
 
+/// A gateway on a loopback port that reads one whole call, sends `head` at once (nothing when it is empty) and then
+/// holds the call open without another byte, as a model that is still generating does. The returned slot holds the
+/// instant its read of the relay's connection ended (the relay closed the call), if it ended within 10 s.
+fn holding_gateway(head: &'static [u8]) -> (Gateway, Arc<Mutex<Option<std::time::Instant>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let kept = got.clone();
+    let closed = Arc::new(Mutex::new(None));
+    let noted = closed.clone();
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut raw = Vec::new();
+        let mut byte = [0u8; 1];
+        while !raw.ends_with(b"\r\n\r\n") && raw.len() < 64 * 1024 {
+            match stream.read(&mut byte) {
+                Ok(1) => raw.push(byte[0]),
+                _ => break,
+            }
+        }
+        let head_text = String::from_utf8_lossy(&raw).into_owned();
+        let length = head_text.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+        let mut body = vec![0u8; length];
+        let _ = stream.read_exact(&mut body);
+        let _ = stream.write_all(head);
+        kept.lock().unwrap().push(Got { head: head_text, body: serde_json::from_slice(&body).unwrap_or(Value::Null) });
+        let mut rest = [0u8; 256];
+        loop {
+            match stream.read(&mut rest) {
+                Ok(0) => {
+                    *noted.lock().unwrap() = Some(std::time::Instant::now());
+                    return;
+                }
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                    *noted.lock().unwrap() = Some(std::time::Instant::now());
+                    return;
+                }
+                Err(_) => return,
+            }
+        }
+    });
+    (Gateway { base_url, got }, closed)
+}
+
+/// The head of a streamed answer and its first event, which reports the call's input tokens; the stream goes on.
+const STARTED_STREAM: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-llm-gateway-call: call-held\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n76\r\nevent: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1200000,\"output_tokens\":300}}}\n\n\r\n";
+
+/// A caller that hangs up on its call (its timeout killed it) before the gateway's answer began, and one that hangs up
+/// while the answer streams: the relay closes its request to the gateway within 1 s (the stand-in gateway notes the
+/// close), and books the call once as abandoned (`call-abandoned`, `caller-hung-up`) with what it knows: the tokens the
+/// stream reported, and, with no price on the route, the call's reservation as a cost not known.
+#[test]
+fn a_call_whose_caller_hangs_up_is_closed_at_the_gateway_within_a_second_and_booked_as_abandoned() {
+    for (tag, head, tokens) in [("relay-gone-before", &b""[..], Value::Null), ("relay-gone-streaming", STARTED_STREAM, json!(1_200_000))] {
+        let s = served(tag);
+        let (review, closed) = holding_gateway(head);
+        let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "run");
+        let ticket = s.relay.open(&format!("run-{tag}"), table).unwrap();
+        let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+        ticket.take_calls(book.clone());
+        let body = json!({"model": "review", "stream": true, "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).to_string();
+        let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+        let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+        caller.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+        let limit = std::time::Instant::now() + Duration::from_secs(3);
+        while got(&review).is_empty() {
+            assert!(std::time::Instant::now() < limit, "{tag}: the call never reached the gateway");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if !head.is_empty() {
+            // the caller reads the head of the answer and its first event: the answer streams when it hangs up
+            let mut seen = Vec::new();
+            let mut buf = [0u8; 1024];
+            while !String::from_utf8_lossy(&seen).contains("message_start") {
+                let n = caller.read(&mut buf).unwrap_or(0);
+                assert!(n > 0, "{tag}: the answer's head never reached the caller: {}", String::from_utf8_lossy(&seen));
+                seen.extend_from_slice(&buf[..n]);
+            }
+        }
+        let hung_up = std::time::Instant::now();
+        drop(caller);
+        let limit = hung_up + Duration::from_secs(3);
+        let at = loop {
+            if let Some(at) = *closed.lock().unwrap() {
+                break at;
+            }
+            assert!(std::time::Instant::now() < limit, "{tag}: the relay kept the call open at the gateway after its caller hung up");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(at.duration_since(hung_up) < Duration::from_secs(1), "{tag}: the relay closed the call at the gateway {:?} after its caller hung up", at.duration_since(hung_up));
+        let lines = wait_for_lines_within(&book, 1, Duration::from_secs(3));
+        assert_eq!(lines.len(), 1, "{tag}: {lines:?}");
+        let (line, micro) = &lines[0];
+        assert_eq!((line["cause"].clone(), line["code"].clone()), (json!("call-abandoned"), json!("caller-hung-up")), "{tag}: {line}");
+        assert_eq!((line["input_tokens"].clone(), line["cost_known"].clone(), *micro), (tokens, json!(false), 7_000), "{tag}: the abandoned call is not booked with what is known: {line}");
+    }
+}
+
 const BROKEN_STREAM: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n76\r\nevent: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1200000,\"output_tokens\":300}}}\n\n\r\n";
 
 #[test]

@@ -42,6 +42,9 @@ pub const USAGE_FILE: &str = "caps-used.json";
 /// ([`Gate::settle_failed`]).
 pub const FAILED_EVENT: &str = "runbook.model-calls-failed";
 
+/// Why a failed call booked after its step had ended did not end the run ([`Gate::record_calls`]).
+const LATE_WHY: &str = "the call ended after its step had ended";
+
 /// The cause a failed call of a step gives the run's failure: `<cause>: route <route> (chosen by <source>) failed the
 /// call: <code>: <detail>` (`refused the call` for `call-refused`), read from the call's ledger line.
 fn failed_call_cause(line: &Value) -> String {
@@ -284,9 +287,12 @@ pub struct RelayBooking {
     /// What fails the step in flight: the first call of it the ledger could not book, or the first whose route the
     /// gateway refused or whose spend ceiling it reached (`crate::relay::stops_the_run`).
     failed: Mutex<Option<String>>,
-    /// The lines of the other failed calls of a step (`call-refused`, `route-unavailable`), since [`Gate::take_failed`]
-    /// took them: they fail no step on their own, and the run ends as their step ends.
+    /// The lines of the other failed calls of a step (`call-refused`, `route-unavailable`) booked while that step was in
+    /// flight, since [`Gate::take_failed`] took them: they fail no step on their own, and the run ends as their step ends.
     failed_calls: Mutex<Vec<Value>>,
+    /// The lines of the failed calls booked after their step had ended (no step in flight, or another one): their step
+    /// went on, so they never fail the run; [`Gate::record_calls`] names them under their own step.
+    late_failed: Mutex<Vec<Value>>,
     /// What a call of the decider may cost (`max_call_micro_usd`); `u64::MAX` when it names no budget.
     max_call: AtomicU64,
     /// The calls taken and not yet booked.
@@ -385,7 +391,11 @@ impl crate::relay::Booking for RelayBooking {
         } else {
             // kept under the lock of the pending lines: the run's close takes both at once (`Gate::close_route`)
             if booked.is_ok() && failed_call && !stops {
-                lock(&self.failed_calls).push(line.clone());
+                // a call booked while its own step is in flight belongs to that step's end; one booked after its step
+                // ended (its program exited with the call still open) belongs to a step that is over and went on
+                let in_flight = lock(&self.step).clone();
+                let late = line.get("step").and_then(Value::as_str) != in_flight.as_deref();
+                lock(if late { &self.late_failed } else { &self.failed_calls }).push(line.clone());
             }
             pending.push(line);
         }
@@ -431,7 +441,7 @@ impl Gate {
     /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
     /// the step in flight.
     pub fn route(&mut self, step: Arc<Mutex<Option<String>>>) -> Arc<RelayBooking> {
-        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), failed_calls: Mutex::new(Vec::new()), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), failed_calls: Mutex::new(Vec::new()), late_failed: Mutex::new(Vec::new()), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
         self.reader = std::mem::take(&mut self.reader).routed();
         self.routed = Some(booking.clone());
         booking
@@ -467,11 +477,20 @@ impl Gate {
         self.reader = std::mem::take(&mut self.reader).with_route_roles(roles);
     }
 
-    /// Records the model calls the relay booked since the last time as events of the run (`runbook.model-call`).
+    /// Records the model calls the relay booked since the last time as events of the run (`runbook.model-call`), then
+    /// names the failed ones among them that were booked after their step had ended, one event
+    /// `runbook.model-calls-failed` per step: their step went on, and they never fail the run.
     pub fn record_calls(&self, sink: &dyn EventSink) {
         if let Some(booking) = &self.routed {
-            for line in std::mem::take(&mut *lock(&booking.pending)) {
+            let (lines, late) = {
+                let mut pending = lock(&booking.pending);
+                (std::mem::take(&mut *pending), std::mem::take(&mut *lock(&booking.late_failed)))
+            };
+            for line in lines {
                 sink.record(crate::relay::MODEL_CALL_EVENT, line);
+            }
+            for (step, calls) in by_step(&late) {
+                record_failed(sink, &step, &calls, LATE_WHY);
             }
         }
     }
@@ -487,10 +506,10 @@ impl Gate {
         while booking.in_flight() > 0 && Instant::now() < until {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-        let (lines, failed_calls) = {
+        let (lines, failed_calls, late) = {
             let mut pending = lock(&booking.pending);
             booking.closed.store(true, Ordering::SeqCst);
-            (std::mem::take(&mut *pending), std::mem::take(&mut *lock(&booking.failed_calls)))
+            (std::mem::take(&mut *pending), std::mem::take(&mut *lock(&booking.failed_calls)), std::mem::take(&mut *lock(&booking.late_failed)))
         };
         for line in lines {
             sink.record(crate::relay::MODEL_CALL_EVENT, line);
@@ -498,6 +517,9 @@ impl Gate {
         // a failed call that ended after its step was booked: the run's end is taken, and its record names the call
         for (step, calls) in by_step(&failed_calls) {
             record_failed(sink, &step, &calls, "the call ended after its step was booked");
+        }
+        for (step, calls) in by_step(&late) {
+            record_failed(sink, &step, &calls, LATE_WHY);
         }
         let left = booking.in_flight();
         if left > 0 {
@@ -797,6 +819,43 @@ mod tests {
         let kinds: Vec<&str> = kept.iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(kinds, vec![crate::relay::MODEL_CALL_EVENT, FAILED_EVENT], "{kept:?}");
         assert_eq!((kept[1].1["step"].clone(), kept[1].1["calls"][0]["gateway_call"].clone()), (json!("delegation.free"), json!("gw-late")));
+    }
+
+    /// A failed call booked when its own step is no longer in flight (another step runs, or none) is never taken with the
+    /// failed calls of the step that ends next, so it cannot be a run's cause: the next recording of the run's calls names
+    /// it under its own step, once. A failed call of the step in flight is kept for that step's end as before.
+    #[test]
+    fn a_failed_call_booked_after_its_step_ended_is_named_under_its_step_and_never_taken_as_a_failed_call_of_the_next() {
+        use crate::relay::Booking;
+        let (mut gate, dir) = routed_gate("relay-late-step", Caps { max_wall_seconds: 60, max_llm_calls: 10, cap_micro_usd: 1000 });
+        let step = Arc::new(Mutex::new(Some("digest.write".to_owned())));
+        let booking = gate.route(step.clone());
+        let line = |step: &str, call: &str| json!({"what": "model call", "run": "run-a", "step": step, "route": "default", "source": "run", "gateway_call": call, "cost_known": true, "micro_usd": 0, "cause": "route-unavailable", "code": "upstream-failed", "detail": "the gateway answered 502"});
+        for _ in 0..3 {
+            booking.admit().unwrap();
+        }
+        // the call of an earlier step, booked while another runs; then one of the step in flight
+        booking.book(line("notes.write", "gw-late"), 0).unwrap();
+        booking.book(line("digest.write", "gw-own"), 0).unwrap();
+        // between two steps: the call of the step that just ended
+        *step.lock().unwrap() = None;
+        booking.book(line("proposals.write", "gw-between"), 0).unwrap();
+        let kept = Kept(Mutex::new(Vec::new()));
+        let outcome = gate.book(&kept);
+        let own: Vec<Value> = gate.take_failed().iter().map(|l| l["gateway_call"].clone()).collect();
+        gate.record_calls(&kept);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(outcome.is_ok(), "{outcome:?}");
+        assert_eq!(own, vec![json!("gw-own")], "a call booked after its step ended was taken with the failed calls of the step that ended next");
+        let named: Vec<(Value, Vec<Value>)> = kept
+            .0
+            .into_inner()
+            .unwrap()
+            .into_iter()
+            .filter(|(k, _)| k == FAILED_EVENT)
+            .map(|(_, r)| (r["step"].clone(), r["calls"].as_array().unwrap().iter().map(|c| c["gateway_call"].clone()).collect()))
+            .collect();
+        assert_eq!(named, vec![(json!("notes.write"), vec![json!("gw-late")]), (json!("proposals.write"), vec![json!("gw-between")])], "the late calls are not named once each under their own step");
     }
 
     #[test]
