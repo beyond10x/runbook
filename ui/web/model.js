@@ -3,7 +3,7 @@
 // at an event, joins evidence ids to records and events, and counts.
 import {principalOf, autopilot, runSettings} from './principal.js';
 
-export const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent', 'terminable'];
+export const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'llm_calls_spent', 'wall_time_spent', 'terminable'];
 
 // ---- who acts: until Canon has an `author` field, the binding tells ----------------------------
 const LLM_ARGV = /(^|[\/\s])stub-|adapter|metaharness|claude|\{profile\}|eval\/levels\//;
@@ -52,7 +52,7 @@ export function caseState(c) {
     const e = ev[i];
     if (e.event === 'evaluated' || e.event === 'revised') continue;
     if (VERDICTS.includes(e.event)) {
-      const label = {awaiting_authority: 'awaiting authority', awaiting_person: autopilot(runSettings()) ? 'awaiting a decision' : 'awaiting a person', stuck: 'stuck', terminable: 'terminable', step_budget_spent: 'step budget spent', llm_budget_spent: 'LLM budget spent', wall_time_spent: 'wall time spent'}[e.event];
+      const label = {awaiting_authority: 'awaiting authority', awaiting_person: autopilot(runSettings()) ? 'awaiting a decision' : 'awaiting a person', stuck: 'stuck', terminable: 'terminable', step_budget_spent: 'step budget spent', llm_budget_spent: 'LLM budget spent', llm_calls_spent: 'LLM calls spent', wall_time_spent: 'wall time spent'}[e.event];
       return {state: e.event, label, next: e.next, at: e.at};
     }
     if (e.event === 'action_started') return {state: 'running', label: `running ${e.action}`, action: e.action};

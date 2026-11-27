@@ -560,7 +560,7 @@ while the run goes on; the stub runtime has no tree, and a run of it has no row.
 | `case_state` | When |
 |---|---|
 | `Ended` | the case has an outcome |
-| `SpendCapReached`, `CallCapReached`, `WallCapReached` | the daemon ended the run at that cap: the run is `Ended` with `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time` ("Caps of a run"), whatever the case's last stop; the case did not get stuck, its run was ended |
+| `SpendCapReached`, `CallCapReached`, `WallCapReached` | the daemon ended the run at that cap: the run is `Ended` with `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time` ("Caps of a run"), whatever the case's last stop; the case did not get stuck, its run was ended. A case for which Loom, asked once as the cap ended the run, named no next action is `Stuck` instead: no admissible move wins over the cap |
 | `AwaitingPerson`, `AwaitingAuthority` | its last stop is that one and the run is `WaitingOnDecision` |
 | `Stuck` | its last stop is `Stuck` (no move) or `BudgetSpent` and the run ended by its tree (`Ended`, not `orphaned`, not at a cap); a wait or a cancel that ended with the run, or an orphaned run, leaves the case `Open` |
 | `Running` | the run's step in flight (`docs/daemon-api.md`, "The step in flight") names the case |

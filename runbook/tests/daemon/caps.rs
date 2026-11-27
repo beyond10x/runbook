@@ -1186,3 +1186,152 @@ fn a_daemon_started_with_only_its_caps_refuses_a_submit_over_each_cap_naming_the
     let _ = daemon.wait();
     assert!(report.is_empty(), "{}", report.join("\n"));
 }
+
+// ---- adversary cases of story a-case-of-a-run-ended-by-a-cap-is-not-shown-stuck ----
+
+/// Each program of `caps-demo` names 0.2 USD (what it books), and `note.check` books its call, then exits 1: its
+/// evidence is `invalid`, so no action of the tree is admissible after it (the check ran, the publish needs a valid note).
+fn a_check_that_fails_after_its_call(home: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let bindings = home.join("bindings/caps-demo.yaml");
+    let text = std::fs::read_to_string(&bindings).unwrap().replace("--max-budget-usd, \"0.3\"", "--max-budget-usd, \"0.2\"");
+    assert!(text.contains("tools/model-step.sh, check"));
+    std::fs::write(&bindings, text.replace("tools/model-step.sh, check", "tools/model-step-fail.sh, check")).unwrap();
+    let step = std::fs::read_to_string(home.join("bindings/tools/model-step.sh")).unwrap();
+    let fail = home.join("bindings/tools/model-step-fail.sh");
+    std::fs::write(&fail, format!("{step}exit 1\n")).unwrap();
+    std::fs::set_permissions(&fail, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn adversary_a_tree_left_without_a_move_by_the_step_that_spent_the_cap_still_shows_its_case_stuck() {
+    // Acceptance 2: a case whose tree was left with no admissible move still lists as `Stuck`. Here the step that
+    // leaves the tree without a move is also the step that uses the last of the cap.
+    let rig = Rig::tweaked("adv-caps-stuck-at-cap", roomy(), a_check_that_fails_after_its_call);
+    // no cap near: the run ends naming the failed step, and the case is Stuck (the tree has no move)
+    let free = rig.submit(RUNBOOK, None, &[]);
+    // 0.4 USD: the write and the failed check spend it all
+    let spend = rig.submit(RUNBOOK, None, &[("cap_micro_usd", "400000")]);
+    // 2 calls: the write and the failed check make them
+    let calls = rig.submit(RUNBOOK, None, &[("max_llm_calls", "2")]);
+    let outcomes: Vec<Value> = [&free, &spend, &calls].iter().map(|r| rig.wait_ended(r)["outcome"].clone()).collect();
+    assert_eq!(outcomes[0], json!("failed: step note.check exit 1"), "the control run: {outcomes:?}");
+    assert_eq!(
+        [case_lines(&rig, &free), case_lines(&rig, &spend), case_lines(&rig, &calls)],
+        [["(root) caps-demo Stuck"], ["(root) caps-demo Stuck"], ["(root) caps-demo Stuck"]],
+        "the tree has no admissible move in all three runs; outcomes {outcomes:?}"
+    );
+}
+
+#[test]
+fn adversary_a_child_case_that_ended_keeps_ended_when_the_call_cap_ends_its_run() {
+    // The root opens a `caps-demo` child, which makes two calls and publishes (its outcome `finished`); then the root
+    // makes one call of its own, and the call cap of 3 ends the run before the root's second.
+    let rig = Rig::tweaked("adv-caps-ended-child", roomy(), |home| {
+        let protocol = r#"format: protocol/1
+protocol:
+  id: caps-nest
+  revision: 1
+  description: >-
+    A root that opens one caps-demo case for the idea, then takes two program steps of its own once that case finished.
+artifacts:
+  idea: {}
+evidence_kinds:
+  case_outcome: {}
+  note_opened: {}
+  root_a: {}
+  root_b: {}
+claims:
+  note.opened:
+    true_when:
+      evidence: {kind: note_opened, subject: idea, result: opened}
+  note.finished:
+    true_when:
+      children: {in: [finished]}
+  root.a:
+    true_when:
+      evidence: {kind: root_a, subject: idea, result: done}
+  root.b:
+    true_when:
+      evidence: {kind: root_b, subject: idea, result: done}
+actions:
+  note.open:
+    effect: write
+    precondition: {claim: note.opened, is: unknown}
+    case_open: {protocol: caps-demo, subject: idea}
+    may_produce:
+      - evidence: note_opened
+  root.a:
+    effect: write
+    precondition:
+      all:
+        - {claim: note.finished}
+        - {claim: root.a, is: unknown}
+    may_produce:
+      - evidence: root_a
+  root.b:
+    effect: write
+    precondition:
+      all:
+        - {claim: root.a}
+        - {claim: root.b, is: unknown}
+    may_produce:
+      - evidence: root_b
+outcomes:
+  delivered:
+    requires: {claim: root.b}
+"#;
+        std::fs::write(home.join("protocol/caps-nest.protocol.yaml"), protocol).unwrap();
+        let bindings = r#"format: loom.bindings/1
+protocol: caps-nest@1
+program_root: bindings
+artifacts:
+  idea: idea.yaml
+actions:
+  - action: note.open
+    executor:
+      kind: open
+      name: note
+      bindings: caps-demo.yaml
+    evidence:
+      - kind: note_opened
+        subject: idea
+        producer: loom
+        from: effect
+        results: {performed: opened}
+  - action: root.a
+    executor:
+      kind: program
+      argv: [tools/model-step.sh, a, --max-budget-usd, "0.3"]
+    evidence:
+      - kind: root_a
+        subject: idea
+        producer: model-step
+        from: exit
+        results: {"0": done, timeout: failed, "*": failed}
+  - action: root.b
+    executor:
+      kind: program
+      argv: [tools/model-step.sh, b, --max-budget-usd, "0.3"]
+    evidence:
+      - kind: root_b
+        subject: idea
+        producer: model-step
+        from: exit
+        results: {"0": done, timeout: failed, "*": failed}
+"#;
+        std::fs::write(home.join("bindings/caps-nest.yaml"), bindings).unwrap();
+    });
+    let run = rig.submit("caps-nest", None, &[("max_llm_calls", "3")]);
+    assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: llm calls", "{}", rig.runlog(&run));
+    assert_eq!(case_lines(&rig, &run), ["(root) caps-nest CallCapReached", "note caps-demo Ended"]);
+}
+
+#[test]
+fn adversary_the_open_case_of_a_run_the_wall_cap_ended_while_its_step_ran_names_the_wall_cap() {
+    let rig = Rig::new("adv-caps-wall-step", roomy());
+    let ctx = rig.context("sleepy", 8);
+    let run = rig.submit(RUNBOOK, Some(ctx), &[("max_wall_seconds", "1")]);
+    assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: wall time");
+    assert_eq!(case_lines(&rig, &run), ["(root) caps-demo WallCapReached"]);
+}

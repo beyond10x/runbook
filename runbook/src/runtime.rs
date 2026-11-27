@@ -195,6 +195,9 @@ pub struct CaseRow {
     pub outcome: Option<String>,
     /// The stop of the case's last `Stopped` line (`AwaitingPerson`, `AwaitingAuthority`, another stop), if any.
     pub stop: Option<String>,
+    /// The actions that line names as the next (`next`): none on a `Cancelled` line means the tree had no admissible
+    /// move when it was stopped.
+    pub stop_next: Vec<String>,
 }
 
 /// Everything a run is started with.
