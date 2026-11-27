@@ -20,8 +20,12 @@ A push of a bare-version tag runs `.github/workflows/release.yml`. It stops when
 
 Each archive holds one directory `runbook-<version>-<target>/` with `bin/`, `libexec/runbook/` and
 `share/runbook/` as the script wrote them. The musl job fails unless `file` and `ldd` call every program of the
-prefix static, each one answers `--version` (or `--help`) in a plain `alpine` container without network, and its
-`runbook` holds `mi_malloc_aligned` (what the `GlobalAlloc` of the crate `mimalloc` calls; a linked musl `runbook` has no symbol `mi_malloc`); the gnu job fails when its `runbook` holds `mi_malloc_aligned`. The `publish` job checks the
+prefix static, each one answers `--version` with exit 0, its name and the release version (`<name> <version>`; `runbook` adds its
+commit) in a plain `alpine` container without network, and its
+`runbook` holds `mi_malloc_aligned` (what the `GlobalAlloc` of the crate `mimalloc` calls; a linked musl `runbook` has no symbol `mi_malloc`); the gnu job fails when its `runbook` holds `mi_malloc_aligned`. Every step runs with `pipefail`, so the
+listings these checks read (`nm`, `tar -t`) are written to a file under `$RUNNER_TEMP` first: a `grep -q` or `head`
+reading a pipe can end its writer early and fail a check that held (`install::release_workflow` in
+`runbook/tests/install/` refuses such a reader in the workflow). The `publish` job checks the
 four files against each other and uploads them to the tag's Release; when the Release does not exist yet, it
 makes it with the notes `docs/releases/<version>.md` (the body step 4 gives it).
 
@@ -29,8 +33,8 @@ mimalloc is the global allocator of a musl build of `runbook` only (musl's own a
 allocates much): the cargo feature `mimalloc` of `runbook/Cargo.toml`, on by default, adds the crate only for a
 `musl` target, so the gnu build compiles and links no mimalloc. `--no-default-features` turns it off.
 
-A pull request that changes the workflow or a `Cargo.toml` runs the musl job once (build, layout, static and
-Alpine checks) and uploads nothing. The workflow is no required check.
+A pull request that changes the workflow, a `Cargo.toml`, a `Cargo.lock` or `rust-toolchain.toml` runs the musl job
+once (build, layout, static and Alpine checks) and uploads nothing. The workflow is no required check.
 
 ## The binary
 

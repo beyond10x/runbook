@@ -8,6 +8,8 @@ on:
     paths:
       - '.github/workflows/release.yml'
       - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - 'rust-toolchain.toml'
 
 permissions:
   contents: read
@@ -47,7 +49,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          version=$(sed -n '/^\[package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' runbook/Cargo.toml | head -1)
+          version=$(awk -F'"' '/^\[/{p=($0=="[package]")} p && /^version = "/{print $2; exit}' runbook/Cargo.toml)
           test -n "$version" || { echo "runbook/Cargo.toml names no version"; exit 1; }
           if [ "$EVENT" = push ] && [ "$TAG" != "$version" ]; then
             echo "the tag $TAG is not the version $version of runbook/Cargo.toml"
@@ -87,12 +89,14 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           set -euo pipefail
-          if nm "$PREFIX/bin/runbook" | grep -q -w mi_malloc_aligned; then echo "the gnu runbook links mimalloc"; exit 1; fi
+          nm "$PREFIX/bin/runbook" > "$RUNNER_TEMP/runbook.nm"
+          if grep -q -w mi_malloc_aligned "$RUNNER_TEMP/runbook.nm"; then echo "the gnu runbook links mimalloc"; exit 1; fi
       - name: The musl runbook allocates through mimalloc
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           set -euo pipefail
-          nm "$PREFIX/bin/runbook" | grep -q -w mi_malloc_aligned || { echo "the musl runbook has no mi_malloc_aligned: the feature mimalloc is off"; exit 1; }
+          nm "$PREFIX/bin/runbook" > "$RUNNER_TEMP/runbook.nm"
+          grep -q -w mi_malloc_aligned "$RUNNER_TEMP/runbook.nm" || { echo "the musl runbook has no mi_malloc_aligned: the feature mimalloc is off"; exit 1; }
       - name: Each program is static and runs in a plain alpine container
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
@@ -105,12 +109,13 @@ jobs:
             case $libs in *'not a dynamic executable'* | *'statically linked'*) ;; *) echo "FAIL $f: ldd says $libs"; fail=1 ;; esac
           done
           test "$fail" = 0
-          docker run --rm --network none -v "$PREFIX:/opt/runbook:ro" alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f sh -c '
+          docker run --rm --network none -e VERSION -v "$PREFIX:/opt/runbook:ro" alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f sh -c '
             fail=0
+            case ${VERSION:-} in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "FAIL the container got no release version: VERSION=${VERSION:-}"; exit 1 ;; esac
             for f in /opt/runbook/bin/runbook /opt/runbook/libexec/runbook/*; do
               out=$(cd /tmp && env -i PATH=/usr/bin:/bin timeout 20 "$f" --version </dev/null 2>&1) && code=0 || code=$?
               case $code:$out in
-              "0:${f##*/} "*) echo "ok $f --version: $out" ;;
+              "0:${f##*/} $VERSION" | "0:${f##*/} $VERSION ("*) echo "ok $f --version: $out" ;;
               *) echo "FAIL $f --version: exit $code: $out"; fail=1 ;;
               esac
             done
@@ -121,8 +126,9 @@ jobs:
           mkdir -p dist
           tar -C "$RUNNER_TEMP" -czf "dist/$NAME.tar.gz" "$NAME"
           (cd dist && sha256sum "$NAME.tar.gz" > "$NAME.tar.gz.sha256" && sha256sum --check "$NAME.tar.gz.sha256")
-          tar -tzf "dist/$NAME.tar.gz" | grep -qx "$NAME/bin/runbook"
-          tar -tzf "dist/$NAME.tar.gz" | grep -qx "$NAME/share/runbook/MANIFEST"
+          tar -tzf "dist/$NAME.tar.gz" > "$RUNNER_TEMP/$NAME.list"
+          grep -qxF "$NAME/bin/runbook" "$RUNNER_TEMP/$NAME.list"
+          grep -qxF "$NAME/share/runbook/MANIFEST" "$RUNNER_TEMP/$NAME.list"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: github.event_name == 'push'
         with:
