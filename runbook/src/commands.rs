@@ -7,7 +7,7 @@
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
 use crate::clock::{parse_instant, Clock, SystemClock};
-use crate::runtime::{AnswerFailure, Autonomy, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, RouteSource, RunRoute, Runtime, StartRequest, StartTarget, Started, Terms};
+use crate::runtime::{AnswerFailure, Autonomy, Confinement, ConfinementSource, DecisionRequest as RuntimeRequest, EventSink, Finish, ProgramSteps, Recovery, RouteSource, RunRoute, Runtime, StartRequest, StartTarget, Started, Terms};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -559,9 +559,12 @@ fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &s
 /// The run's route as the handler resolves it at the submit (`docs/model-routes.md`, sections 2 and 11): the route of
 /// each role and the record of it, or none for a run that takes no route; `Err` is the reason of `route-refused`. The
 /// run's word comes first (`model_route`, `model_routes.<role>`), then `route_policy.default`. A run may take a route
-/// when its decider is the kind model above A0 or its runbook runs a program (`runs_programs`: a bound program or an
-/// agent node, each of which may call a model through the route file). Any other run makes no model call: it takes no
-/// route, is refused when it names one (the reason names the member), and the default is not applied to it. A run
+/// only when it has a model step: its decider is the kind model above A0, or a program of its runbook calls a model
+/// through the route file (`ProgramSteps::ModelCall`: an agent node, or a program whose per-call budget is above 0,
+/// `crate::budget::calls_a_model`). Any other run makes no model call and takes no route; the default is not applied to
+/// it. Of those, a run whose runbook runs no program is refused when it names a route (the reason names the member);
+/// one whose programs call no model (`ProgramSteps::NoModelCall`) is admitted with no route, and the submit records the
+/// routes it named as not taken ([`route_not_taken`]). A run
 /// whose model calls come from its programs only and that names no route takes `route_policy.default` only when the
 /// file declares one and the relay serves runs (`serves_routes`); else it takes none and runs as before routes. A
 /// daemon whose file declares no route gives a model run the route `default` of its lone `[gateway]`, as before
@@ -570,7 +573,7 @@ fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &s
 /// routes) adds its word between the run's and the default (`crate::admission::for_run`): its entry for a role the run
 /// names none for, its entry for the role `default` before `route_policy.default`, and every route of the run within its
 /// `routes_allowed`.
-fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs: bool, serves_routes: bool, protocol: Option<&ProtocolWord>) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
+fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, programs: ProgramSteps, serves_routes: bool, protocol: Option<&ProtocolWord>) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
     let routes = &policy.routes;
     let roles = input.model_routes.clone().unwrap_or_default();
     if let Some(name) = &input.model_route {
@@ -593,7 +596,7 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
         }
     }
     let decider_calls = terms.makes_model_calls();
-    if !decider_calls && !runs_programs {
+    if !decider_calls && programs == ProgramSteps::NoProgram {
         let member = match (&input.model_route, roles.keys().next()) {
             (Some(_), _) => Some("model_route".to_owned()),
             (None, Some(role)) => Some(format!("model_routes.{role}")),
@@ -610,6 +613,9 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
             if routes.is_interim(name) {
                 return Err(format!("{member} names the interim route default of the daemon's lone [gateway], which only a run whose decider is the kind model above A0 takes: a run whose model calls come from its programs only names a route the daemon's file declares in [routes]"));
             }
+        }
+        if programs == ProgramSteps::NoModelCall {
+            return Ok(None);
         }
     }
     let protocol = protocol.filter(|_| !routes.names().is_empty());
@@ -638,6 +644,28 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
         }
     };
     table_of(routes, chosen, NO_DEFAULT).map(Some)
+}
+
+/// Why a run whose runbook's programs call no model and whose decider is no model takes no route, also the one its submit
+/// names.
+const NOT_TAKEN: &str = "the run makes no model call (its runbook runs no agent node and no program whose per-call budget is above 0, and its decider is not the kind model at a level above A0): it takes no route and wakes none";
+
+/// The routes a submit named for a run that takes none because it makes no model call (`route_of_run`,
+/// `ProgramSteps::NoModelCall`): the member `model_route_not_taken` of its first event `runbook.submitted`, with the
+/// reason. None when the run may make model calls or the submit named no route.
+fn route_not_taken(input: &SubmitRun, terms: &Terms, programs: ProgramSteps) -> Option<Value> {
+    let roles = input.model_routes.as_ref().filter(|r| !r.is_empty());
+    if terms.makes_model_calls() || programs != ProgramSteps::NoModelCall || (input.model_route.is_none() && roles.is_none()) {
+        return None;
+    }
+    let mut record = json!({"reason": NOT_TAKEN});
+    if let Some(name) = &input.model_route {
+        record["model_route"] = json!(name);
+    }
+    if let Some(roles) = roles {
+        record["model_routes"] = json!(roles);
+    }
+    Some(record)
 }
 
 /// The refusal of a run that makes model calls and that nothing gives a route.
@@ -773,6 +801,10 @@ struct Admitted {
     /// The run's model route as its record keeps it and the route of each of its roles (`route_of_run`, `route_of_delegation`);
     /// none: the run is on no route.
     route: Option<(RunRoute, crate::relay::RouteTable)>,
+    /// The routes the submit named for a run that takes none because it makes no model call, with the reason
+    /// ([`route_not_taken`]): the member `model_route_not_taken` of its first event. None: the submit named none, or the
+    /// run took one.
+    route_not_taken: Option<Value>,
     /// The route of a delegation, by name; none: the run is no delegation.
     delegation: Option<String>,
     /// The wait for the run's routes when one could not answer at the submit (`read_routes`); none: the run starts at once.
@@ -1296,12 +1328,14 @@ impl Daemon {
         }
         // The run's model route: the submit's word, then the runbook's route entries, then the daemon's default; a refusal
         // lists the declared routes.
-        let runs_programs = self.inner.runtime.runs_programs(&input.runbook_id, input.runbook_version.as_deref());
-        let route = self.protocol_word(&input.runbook_id, input.runbook_version.as_deref()).and_then(|word| route_of_run(&self.inner.policy, &input, &terms, runs_programs, self.inner.runtime.serves_routes(), word.as_ref()));
+        let programs = self.inner.runtime.program_steps(&input.runbook_id, input.runbook_version.as_deref());
+        let route = self.protocol_word(&input.runbook_id, input.runbook_version.as_deref()).and_then(|word| route_of_run(&self.inner.policy, &input, &terms, programs, self.inner.runtime.serves_routes(), word.as_ref()));
         let route = match route {
             Ok(route) => route,
             Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),
         };
+        // A run that makes no model call takes no route, also the one its submit names: its first event says so.
+        let route_not_taken = route.is_none().then(|| route_not_taken(&input, &terms, programs)).flatten();
         // Can the routes take the run (docs/model-routes.md, section 3)? Read before anything is written; no call, no
         // wake. A gateway not ready is 503, an alias it does not list route-refused, a model not callable a wait. A replay
         // of an idempotency key is not asked about: it answers the run that exists (below), as a delegation's does.
@@ -1373,6 +1407,7 @@ impl Daemon {
             idempotency_key: input.idempotency_key,
             serial_key: input.serial_key,
             route,
+            route_not_taken,
             delegation: None,
             wait,
         };
@@ -1428,6 +1463,9 @@ impl Daemon {
             record["model_route"] = json!(r.route);
             record["model_route_alias"] = json!(r.alias);
             record["model_route_source"] = json!(r.source);
+        }
+        if let Some(not_taken) = a.route_not_taken {
+            record["model_route_not_taken"] = not_taken;
         }
         record_event_locked(&mut st, &run_id, "runbook.submitted", record)?;
         if let Some(d) = delegated {
@@ -1673,6 +1711,7 @@ impl Daemon {
             idempotency_key: input.idempotency_key,
             serial_key: input.serial_key,
             route: Some((record, table)),
+            route_not_taken: None,
             delegation: Some(route.clone()),
             wait,
         };

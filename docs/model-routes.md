@@ -263,13 +263,35 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   `route-refused`, naming the route and the rule that refused it).
 - `runbook run` reads the same tables from `runbook.toml` and takes `--model-route <name>`.
 - A run's model calls may come from its decider or from its programs (section 11: the route file goes to every model
-  process of a run on a route, bound programs included). So a run may take a route when its decider is `model` above
-  `A0`, or its runbook has an agent node or any bound program; the default route applies to it the same way. Only a
-  run with none of these (a person's actions only, and a decider that is no model) takes no route: a submit that
-  names one is refused `route-refused`, the reason naming the member (`model_route`, `model_routes.<role>`) and "the
-  run makes no model call", and the default route is not applied. A run whose model calls come from its programs only
-  and that names no route takes a declared `[route_policy] default` only, and only where the relay is served (a
-  loopback listener); else it takes none and runs as before routes (built: `docs/daemon-api.md`, "The route of a run").
+  process of a run on a route, bound programs included). A run takes a route, named or `[route_policy] default`, only
+  when it has a model step (the operator, 2026-11-27: "A: route only for model steps";
+  `story:the-default-route-wakes-for-runs-without-a-model-call`). It has one when, as the daemon reads at submit:
+  - its decider is `model` above `A0`; or
+  - a program the run's runner starts for its bindings (the root's, or a child's that an `open` action names) is an
+    agent node (its first word is `sdc-node`). Every program the runner starts counts: an action's `executor.argv`,
+    its `arguments_from` and its `handoff_when` check, for Loom starts each through the runner, which reserves its
+    budget and, on a route, hands it the route file; or
+  - such a program reserves a per-call budget above 0, read as the run reserves it as it starts the program
+    (`budget::Reserves::of`): the budget its arguments name (`--max-budget-usd`), else `max_budget_usd` of the action
+    whose `executor.argv` or `arguments_from` it is, else of its file, else the largest budget of the runbook.
+    `max_budget_usd: 0` (or `--max-budget-usd 0`) is a program that calls no model (`runbook/src/budget.rs`,
+    `calls_a_model`). Bindings that cannot be read, a child file that cannot be read or parsed among them, or that a
+    run is refused for at load, count as a model step (the run is refused at load all the same).
+
+  Route entries (`bindings/<runbook>.routes.yaml`) make no model step: they say which route a model step takes. A run
+  with no model step (a person's actions only, or programs whose budget is 0, and a decider that is no model) takes
+  no route: the default route is not applied to it, no wake is sent or booked for it, it does not wait for a route and
+  its programs get no route file. A submit for it that names a route (`model_route`, `model_routes.<role>`) is
+  admitted all the same and takes no route either: consumers name their route in every submit, and their runs without
+  a model step must not be refused (the coordinator's decision of 2026-11-27, which follows the operator's). Its first
+  event `runbook.submitted` names what the submit asked for and why it was not taken: `model_route_not_taken`, with
+  `model_route`, `model_routes` and `reason` ("the run makes no model call ..."). A name that is not a declared route
+  (an address, a token, an alias) is refused as for any run. Only a run whose runbook runs no bound program and no
+  agent node, and whose decider is no model above `A0`, is refused `route-refused` when it names a route, the reason
+  naming the member and "the run makes no model call", as before this rule. A run whose model calls come
+  from its programs only and that names no route takes a declared `[route_policy] default` only, and only where the
+  relay is served (a loopback listener); else it takes none and runs as before routes (built: `docs/daemon-api.md`,
+  "The route of a run").
 
 ### 3. Before the run starts: the route must be able to answer
 

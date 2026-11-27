@@ -93,7 +93,7 @@
     },
     "model_route": {
       "$ref": "#/$defs/sdc.daemon.RouteName",
-      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook's first model call.",
+      "description": "The route of the run's role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon's `route_policy.default`. Absent for a run that makes no model call (it has no model step: its runbook runs no agent node and no program whose per-call budget is above 0, and its decider is not a model above A0; a submit for such a run whose runbook runs programs and that named a route is admitted with none, and its first event `runbook.submitted` names that route under `model_route_not_taken` with the reason), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook's first model call.",
       "x-ess-relation": {
         "name": "model_route",
         "kind": "references",
@@ -155,7 +155,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:d5362bdaec7d1c2a9c6c34be7f257c9374781f07b2a4985dd6a9a7500cfef91e",
+    "contract_digest": "slice-sha256/2:f51dee2c2d0a8f53c422165c6b6f6331088ac12a1bf532b8778c52ce2081659e",
     "regenerate": "ess generate"
   },
   "$defs": {
