@@ -33,7 +33,7 @@
 - The driver runtime (its main file, the trial and cycles scripts, the model-node and decider
   shell tools) is deleted: a run on Loom matched the driver's (`story:parity-run-on-loom`), then
   `story:driver-runtime-removed` removed it. `runbook run` is the way to run a case. The pinned Loom
-  commit is `112a97e1ba0a2442dbdb0ddea82f100fa1e50970` (`112a97e1`; Loom's tag `0.62.1`; it replaced `ed644a4d`, and `d8944d49`, `c9b4c177` and `db2726ff` before it), for the library the
+  commit is `b0a0dfda31f722d5b38208f6fb9d90edacd7165b` (`b0a0dfda`; Loom's tag `0.63.0`; it replaced `112a97e1`, and `ed644a4d`, `d8944d49`, `c9b4c177` and `db2726ff` before it), for the library the
   crate links; the child binary of `runbook run --loom` is still the one of `70b0e6e0` (`docs/loom-run.md`). A run of `stub-cycle` through `runbook loom-run` (the former name of `runbook run`) on `5af3f9c2`
   (`--confinement local`, scripted approvals, no model) compared `parity: identical` with the
   driver's (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"); it does not cover a run
