@@ -148,7 +148,7 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
   // A run with the runner's record: `step_budget_spent` is Loom's answer to every `tree run --max-steps 1` (the budget of
   // that one step is spent: `stop: BudgetSpent`), so it is the end of a step and not a stop of the case.
   const proc = procOf(live);
-  const stuck = cases.filter((c) => { const l = lastVerdictish(c); return l && ['stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent'].includes(l.event) && !(proc && l.event === 'step_budget_spent'); });
+  const stuck = cases.filter((c) => { const l = lastVerdictish(c); return l && ['stuck', 'step_budget_spent', 'llm_budget_spent', 'llm_calls_spent', 'wall_time_spent'].includes(l.event) && !(proc && l.event === 'step_budget_spent'); });
   const terminable = cases.filter((c) => lastVerdictish(c)?.event === 'terminable' && !c.events.some((e) => e.event === 'terminated'));
   const between = cases.filter((c) => {
     const l = c.events[c.events.length - 1];
@@ -502,7 +502,7 @@ function stuckReason(c) {
 
 // What a stopped run was doing at the stop, in the past tense: the file's verdict and case first,
 // the waits and steps the store still shows open after them.
-const PAST = {awaiting_person: 'waiting on a person', awaiting_authority: 'awaiting authority', stuck: 'stuck', terminable: 'terminable', terminated: 'closed', step_budget_spent: 'out of steps', llm_budget_spent: 'out of LLM calls', wall_time_spent: 'out of time'};
+const PAST = {awaiting_person: 'waiting on a person', awaiting_authority: 'awaiting authority', stuck: 'stuck', terminable: 'terminable', terminated: 'closed', step_budget_spent: 'out of steps', llm_budget_spent: 'out of LLM budget', llm_calls_spent: 'out of LLM calls', wall_time_spent: 'out of time'};
 export function wasLines(st) {
   const s = st.stopped || {};
   const out = [];

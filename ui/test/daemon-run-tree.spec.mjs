@@ -201,11 +201,15 @@ test('the tree of the page gives every case its depth to any depth, and a parent
     const deep = daemonCases(chain).map((c) => c.depth);
     const loop = daemonCases([{case_id: 'a', parent: 'b', protocol: 'p', case_state: 'Open'}, {case_id: 'b', parent: 'a', protocol: 'p', case_state: 'Open'}]).map((c) => c.depth);
     const orphan = daemonCases([{case_id: 'x', parent: 'gone', protocol: 'p', case_state: 'Stuck'}]).map((c) => [c.depth, c.events.at(-1).event]);
-    return {deep, loop, orphan};
+    const {caseState} = await import('/model.js');
+    const capped = daemonCases(['SpendCapReached', 'CallCapReached', 'WallCapReached'].map((s, i) => ({case_id: `k${i}`, protocol: 'p', case_state: s}))).map((c) => caseState(c).label);
+    return {deep, loop, orphan, capped};
   });
   expect(r.deep).toEqual(Array.from({length: 40}, (_, i) => i));
   expect(r.loop.every((x) => Number.isInteger(x) && x <= 64)).toBe(true);
   expect(r.orphan).toEqual([[0, 'stuck']]);
+  // a case of a run a cap ended is labelled with that cap, never stuck
+  expect(r.capped).toEqual(['LLM budget spent', 'LLM calls spent', 'wall time spent']);
   // the page draws every row it was given: a loop of two cases and a case whose parent is not in the tree included
   const fake = [{case_id: 'r', protocol: 'p', case_state: 'Open'}, {case_id: 'a', parent: 'b', name: 'loop-a', protocol: 'p', case_state: 'Open'},
     {case_id: 'b', parent: 'a', name: 'loop-b', protocol: 'p', case_state: 'Open'}, {case_id: 'x', parent: 'gone', name: 'orphan', protocol: 'p', case_state: 'Stuck'}];

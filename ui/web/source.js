@@ -50,7 +50,8 @@ const q = encodeURIComponent;
 // The case tree of a run from the daemon's view `cases`: each row becomes a case with the fields the page's tree reads,
 // its parent, its depth, its protocol and one event made from the row's state (web/model.js caseState). A case of the
 // daemon has no evidence, evaluation or event log on the page: the run's steps and events stand for them (web/runsteps.js).
-const STATE_EVENT = {Ended: 'terminated', AwaitingPerson: 'awaiting_person', AwaitingAuthority: 'awaiting_authority', Stuck: 'stuck', Running: 'action_started'};
+const STATE_EVENT = {Ended: 'terminated', AwaitingPerson: 'awaiting_person', AwaitingAuthority: 'awaiting_authority', Stuck: 'stuck', Running: 'action_started',
+  SpendCapReached: 'llm_budget_spent', CallCapReached: 'llm_calls_spent', WallCapReached: 'wall_time_spent'};
 export function daemonCases(rows) {
   const byId = new Map(rows.map((r) => [r.case_id, r]));
   const depth = (r) => { let d = 0; for (let p = byId.get(r.parent), seen = new Set(); p && !seen.has(p) && d < 64; p = byId.get(p.parent)) { seen.add(p); d++; } return d; };

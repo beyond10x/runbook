@@ -209,7 +209,7 @@ main { flex: 1; display: grid; grid-template-columns: 272px minmax(0, 1fr) 420px
 .sdot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
 .sdot.st-terminated, .sdot.st-terminable { background: var(--true); }
 .sdot.st-awaiting_authority, .sdot.st-awaiting_person { background: var(--appr); box-shadow: 0 0 0 3px rgba(255, 181, 71, .2); }
-.sdot.st-stuck, .sdot.st-step_budget_spent, .sdot.st-llm_budget_spent, .sdot.st-wall_time_spent { background: var(--false); }
+.sdot.st-stuck, .sdot.st-step_budget_spent, .sdot.st-llm_budget_spent, .sdot.st-llm_calls_spent, .sdot.st-wall_time_spent { background: var(--false); }
 .sdot.st-running { background: var(--llm); animation: glowdot 1.2s infinite; }
 .cid { font: 600 12px var(--mono); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cst { font-size: 10.5px; font-weight: 550; color: var(--text-3); white-space: nowrap; }

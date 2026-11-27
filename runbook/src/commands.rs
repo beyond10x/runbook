@@ -2134,25 +2134,30 @@ impl Daemon {
 
     /// The view `CasesOfRun` (wire name `cases`): a row per case of the run's tree, as the runtime reads it
     /// (`Runtime::cases`), read after the state is let go. Where a case stands (`case_state`): `Ended` with an outcome;
-    /// else `AwaitingPerson` or `AwaitingAuthority` when its last stop says so and the run waits on a decision; else
+    /// else `SpendCapReached`, `CallCapReached` or `WallCapReached` when the daemon ended the run at that cap (whatever
+    /// the case's last stop: a run that ends at a cap between two steps leaves the step's `BudgetSpent` line last); else
+    /// `AwaitingPerson` or `AwaitingAuthority` when its last stop says so and the run waits on a decision; else
     /// `Stuck` when its last stop is `Stuck` or `BudgetSpent` and the run ended by its tree (`Ended`, not orphaned: a wait
     /// or a cancel that ended with the run, or a run the daemon orphaned, leaves the case `Open`); else `Running` when the
     /// run's step in flight names the case; else `Open`.
     pub fn cases_of_run(&self, run_id: &str) -> Result<Vec<Value>, Fault> {
-        let (state, step_case, ended_by_its_tree) = {
+        let (state, step_case, capped, ended_by_its_tree) = {
             let st = self.st();
             let run = st.run(run_id).ok_or_else(|| Fault::no_such_run(run_id))?;
             let step = if run.state == RunState::Running { lock(&self.inner.steps).get(run_id).and_then(|s| s.case.clone()) } else { None };
-            (run.state, step, run.state == RunState::Ended && run.outcome.as_deref() != Some("orphaned"))
+            let ended = run.state == RunState::Ended;
+            let capped = if ended { run.outcome.as_deref().and_then(crate::engine::Cap::of_outcome) } else { None };
+            (run.state, step, capped, ended && run.outcome.as_deref() != Some("orphaned"))
         };
         let cases = self.inner.runtime.cases(run_id).map_err(|_| Fault::Refused { status: 503, what: "tree not readable", message: format!("the tree of run {} cannot be read at this moment: ask again", crate::engine::products::said(run_id)) })?;
         Ok(cases
             .into_iter()
             .map(|c| {
-                let case_state = match (&c.outcome, c.stop.as_deref()) {
-                    (Some(_), _) => "Ended",
-                    (None, Some(stop @ ("AwaitingPerson" | "AwaitingAuthority"))) if state == RunState::WaitingOnDecision => stop,
-                    (None, Some("Stuck" | "BudgetSpent")) if ended_by_its_tree => "Stuck",
+                let case_state = match (&c.outcome, capped, c.stop.as_deref()) {
+                    (Some(_), ..) => "Ended",
+                    (None, Some(cap), _) => cap.case_state(),
+                    (None, None, Some(stop @ ("AwaitingPerson" | "AwaitingAuthority"))) if state == RunState::WaitingOnDecision => stop,
+                    (None, None, Some("Stuck" | "BudgetSpent")) if ended_by_its_tree => "Stuck",
                     _ if step_case.as_deref() == Some(c.case_id.as_str()) => "Running",
                     _ => "Open",
                 };
