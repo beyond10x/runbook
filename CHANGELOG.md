@@ -7,6 +7,15 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-27
+
+One entry is marked breaking: a daemon run takes a model route, named or `[route_policy] default`, only when it has a
+model step, so a run whose programs all name the budget 0 takes no route and wakes nothing. A release tag builds two
+archives of an installed prefix, gnu and static musl, and `runbook` links Loom 0.63.0. A failed model call booked after
+its step ended no longer fails a run, a caller that hangs up ends its call at the gateway, a case of a run ended at a
+cap shows the cap and not `Stuck`, and the bindings checks leave out route files. No evaluation run was made on this
+code. The longer note is `docs/releases/0.14.0.md`.
+
 ### Added
 - Release archives (story `static-musl-release`; `docs/releasing.md`, "The archives"; `README.md`, "Try it"). A tag push runs `.github/workflows/release.yml`: it refuses a tag that is not the version of `runbook/Cargo.toml`, packs the prefix `scripts/install.sh` lays out as `runbook-<version>-x86_64-unknown-linux-gnu.tar.gz` and, static, `runbook-<version>-x86_64-unknown-linux-musl.tar.gz`, each with a `.sha256` file, and uploads them to the tag's Release. The musl job fails unless `file` and `ldd` call every program static and each answers `--version` with exit 0, its name and the release version in a plain `alpine` container; a pull request that changes the workflow, a `Cargo.toml`, a `Cargo.lock` or `rust-toolchain.toml` runs that job without upload. The listings the checks read (`nm`, `tar -t`) go to a file first, never through a pipe into `grep -q` or `head`, which under `pipefail` can fail a check that held; `install::release_workflow` refuses such a reader in the workflow. The musl `runbook` allocates through mimalloc (cargo feature `mimalloc`, on by default, compiled only for a `musl` target; the gnu build links none). Every helper program answers `--version` with its name and the version (`sdc_tools::answer_version`; `sdc-watch` through clap), held by `install::every_program_answers`, and `sdc-conform` on a musl build takes a pin's `<arch>-unknown-linux-musl` archive when the pin names one and `-linux-gnu` otherwise (`conformance::target_triple`, `platform_for`; the pins of aep and ess are unchanged): both were in the code of 0.13.0 without an entry. The musl build needs Loom 0.63.0 (below).
 
