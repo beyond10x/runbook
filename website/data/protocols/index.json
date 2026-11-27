@@ -684,12 +684,51 @@
     }
   ],
   "release": {
-    "date": "2026-11-26",
-    "notes": "docs/releases/0.13.0.md",
-    "tag": "0.13.0",
-    "version": "0.13.0"
+    "date": "2026-11-27",
+    "notes": "docs/releases/0.14.0.md",
+    "tag": "0.14.0",
+    "version": "0.14.0"
   },
   "releases": [
+    {
+      "date": "2026-11-27",
+      "limits": [
+        "**The archives come from a workflow that has not run on a tag yet.** This is the first release whose release workflow builds them. Its musl job ran once, green, on the pull request that added it (head `eb1d875f`); its gnu job runs only on a tag push and has not run. Until the workflow's `publish` job has ended, the Release holds the notes and no archive.",
+        "**The aep and ess pins name no musl archive.** `driver/aep-pin.json` (aep 0.80.0) and `driver/ess-pin.json` (ess 0.98.0) list gnu and darwin builds only, so `sdc-conform aep-install` and `ess-install` of the musl archive install the gnu build of aep and ess, which needs glibc (`conformance::platform_for` in `driver/src/conformance.rs`).",
+        "**A wake of a managed route is booked when it is sent, whatever the gateway answers.** A wake answered 5xx, `no-capacity` or `target-unavailable` books `wake_cost_micro_usd` against the day's wake cap though no model started, so failed wakes can spend the cap and later runs wait for their route and end `stopped: route` (`docs/model-routes.md`, section 3). The story `a-wake-is-booked-only-when-it-succeeds` (draft) fixes it in the next release.",
+        "**A run on a route works at `--confinement local` only.** At `linux` a delegation on a route fails at once, `env: 'sdc-node': No such file or directory`, exit 127, from a prefix and from a checkout; the story `route-runs-at-linux-confinement` (draft) waits.",
+        "**A tree left without a move by the step that reaches a cap shows the cap word**, not `Stuck`: telling it from a tree with a move left needs Loom to evaluate without a step (story `a-capped-runs-stuck-tree-shows-stuck`, draft; `docs/engine.md`).",
+        "**A caller that half-closes its connection and still reads is not served.** The daemon's HTTP server drops its call as one that hung up (`docs/engine.md`, \"A gateway\").",
+        "**The install script builds on the machine it runs on and installs from the checkout it lies in.** It copies only files git tracks and refuses a checkout whose git cannot be asked. Two installs at once into one prefix are not held apart; an install from an archive lacks the links and dot files of a git checkout; a release install after a branch was moved from another work tree is refused until an input of the build changes; a checkout with the reftable format cannot be installed. `scripts/install.sh --help` has each.",
+        "**No evaluation run was made on this code.** The records of `experiments/` ran on earlier code; this release claims no measured change over 0.13.0. The fifth Loom evaluation record, `parity-loom-strong-5`, is registered and planned: it has no run yet.",
+        "**The relay is served on a loopback listener only.** On any other listener a run on a route does not start (`docs/daemon-api.md`, \"The relay of a run's model calls\").",
+        "**Runbook does not read the gateway's `cost_usd`.** A call's cost is its route's declared prices, else the call is booked at its reservation with `cost_known: false` (`docs/model-routes.md`). The Routes view shows no calls and no booked spend per route: the daemon serves no count of them.",
+        "**A generated protocol of a delegation runs only the daemon's agent node.** The programs and child runbooks of the catalog are not built into it (`docs/model-routes.md`, section 9).",
+        "**The default spec check tests that a reference is there, not that the spec says what the fix does.** It reads the whole description, so a code path under the spec directory (a test tree named `spec/`) counts; name another directory with `--spec-dir` (`docs/bugfix.md`).",
+        "**The default description writer is a program and reads no feedback.** Sent back after a refusal it writes the same description unless its inputs changed; `sdc-check-routes` lists this as a `not-handed` finding of `handback.describe`, and a model writer bound in its place gets the refusal line (`docs/reject-routes.md`).",
+        "**A gateway of `runbook run` works at `--confinement local` only.** Under `substrate` a bound program has no network, so the runner refuses a gateway there by the name `gateway`. `llm-adapter-metaharness.sh` cannot take one (it removes every `ANTHROPIC_*` variable and starts its own proxy) and ends with exit 127 when it is given one. With an `http://` address at a host that is not loopback the token travels in clear text; the choice is the user's (`docs/loom-run.md`).",
+        "**The forge runs no UI specs.** On 2 CPUs the UI step does not end inside the 120 s step budget (550 to 587 of 611 tests were done when the bound ended it, measured on the build node), so a UI change is checked by the local gate only until the test-budget defect of `test:ui` is fixed (`docs/forge-gate.md`).",
+        "**The rework allowance is not observed in a full run.** The cycle entries that show it, `decider-rework-spent`, `rework-fresh-allowance` and `implement-percause`, stay `pending` (`docs/cycles-suite.md`); no run has told a `rework_limit` of 2 from 3.",
+        "**The bindings check follows Loom's decoder for the forms it names.** Five forms (`merge_budget_limit`, `merge_budget_zero`, `merge_budget_unrelated`, `merge_in_action`, `complex_key`) were measured to be refused by Loom when they were measured, at `d8944d49`; no measurement of them at a later pin is recorded, no other form is claimed refused as Loom refuses it, and the 1 MiB text bound of Loom's reader is not checked (`CHANGELOG.md`).",
+        "**The slow lane `task test:loom-in-process` compares a library of `b0a0dfda` with the child binary of Loom `70b0e6e0`** (its sha256 is pinned in `runbook/tests/loom_run/slow.rs`); no `b10x-loom` of `b0a0dfda` was built for it (`docs/loom-run.md`).",
+        "**The recorded cycles run in `docs/cycles-suite.md` is at Loom `d8944d49`.** The file's last record of the whole suite is 55 cycles, `40 of 40 as expected, 15 pending`; the tree holds 56 cycles and the file has no record of a run of all of them.",
+        "**Only `runbook run` writes `runner.json`** (`runbook/src/loom_run/in_flight.rs`). A run of the daemon and a run directory an older `runbook` wrote have none, and the inspector shows them as it showed them before.",
+        "**The line of the step in flight is not shown.** Loom pipes a bound program's output into its own process and returns the last bytes when the program ends (`docs/loom-run-directory.md`). The daemon's run page shows the step in flight and its duration, not its output.",
+        "**`runner.json` and the start lines are what files of the run directory claim.** Under `--confinement local` a bound program can write the run directory, so the inspector's answer is a reading of those files, shown as text, and nothing decides on it.",
+        "**A run with no money cap named is not limited in money.** `runbook run` and `sdc-experiment` start a run with no `--cap-micro-usd` and no `--max-llm-calls`; the daemon with `--runtime loom` is the exception, it requires its caps and their ceilings (`docs/loom-run.md`, `docs/daemon-api.md`). A call of unknown cost in a run that names no spend cap books nothing. In a run opened with a model node the printed command of a handoff runs as printed under a named cap too, so several steps spend from one reservation before the cap is looked at again; the story `handoff-under-a-named-cap-runs-one-step-at-a-time` (proposed) is the bound for it.",
+        "**The daemon serves no evidence records and no action output of a run.** Its files under `work/` are served by the views `products` and `product`; the rest is read on disk under the daemon's state directory (`docs/daemon-api.md`).",
+        "**The daemon runs a stub unless asked.** `runbook serve` runs the stub runtime, in which nothing is executed, unless `--runtime loom` is given (`docs/engine.md`).",
+        "**The cycles that run `change.review` and the request entries are not observed as `expected` here.** `docs/cycles-suite.md` says that no entry changed from expected to another state is not observed on the host where they were run; it needs one run of the suite at a load where a cycle ends inside Loom's 60 s bound, and that run has not been made.",
+        "**No statement about speed, quality or cost goes beyond `experiments/`.** A figure in these notes is a count read from the tree or from a command named above. The times in `CHANGELOG.md` and `docs/forge-gate.md` were measured on the build host or the forge and are in no record of `experiments/`.",
+        "**The inspector is read-only and has no route to the daemon** (`ui/README.md`).",
+        "**`--confinement local` is unconfined** (`docs/loom-run.md`): a bound program can write the whole run directory.",
+        "`task check:ess-suite:slow`, the slow lane `task test:cycles-loom`, `task test:install` and `task docs:test` were not run for this release."
+      ],
+      "notes": "docs/releases/0.14.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.14.0/docs/releases/0.14.0.md",
+      "summary": "A minor release of 0.13.0. One change is marked breaking: a daemon run takes a model route, named or `[route_policy] default`, only when it has a model step, so a run whose programs all name the budget 0 takes no route and wakes nothing. It is the first release whose release workflow builds two archives of an installed prefix, gnu and static musl. `runbook` links Loom 0.63.0; a failed model call booked after its step ended no longer fails a run, a caller that hangs up ends its call at the gateway, a case of a run ended at a cap shows the cap and not `Stuck`, and the bindings checks leave out route files. A source release at tag `0.14.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.13.0.md` for the release this one follows.",
+      "version": "0.14.0"
+    },
     {
       "date": "2026-11-26",
       "limits": [
@@ -1158,7 +1197,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "3fe949bb21a42c2d13952545b481b3d4818854fbdf7f914c2ca0387674364b70"
+      "sha256": "4a60349e6173f37f4b7ba65c7f7bb618ca5a8826ccaa8bb91f6428e440f77b36"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -1203,6 +1242,10 @@
     {
       "path": "docs/releases/0.13.0.md",
       "sha256": "127cb9ee31853fc3e3f5ded614f726bb1f22f7717d0607e010b18429d9d1e877"
+    },
+    {
+      "path": "docs/releases/0.14.0.md",
+      "sha256": "62cf0a0cca7b1e847a6bcf33c089756e5dc7ccb3ebed58d4119cef80ac98e894"
     },
     {
       "path": "docs/releases/0.2.0.md",
