@@ -19,10 +19,19 @@ their tests here too.
 The driver tests need a real aep: the programs they start (`sdc-bugfix`, `sdc-node`, `sdc-tool.sh`) keep their
 planning store with it, and the expected outputs hold the files and messages aep writes. A stand-in would have to
 write the same bytes. So `test:driver` asks `sdc-conform aep-path` for the pinned binary (its digest and `--version`
-checked) and puts its directory ahead of the traps, on the forge and here alike; without it the step stops with the
-install command, `cargo run --locked --manifest-path driver/Cargo.toml --bin sdc-conform -- aep-install`. On
-2026-11-24 the forge's first run of the step failed 34 tests with `aep is not on PATH`; the local forge way showed the
-same 34 with no aep reachable, before the change.
+checked) and puts its directory ahead of the traps, on the forge and here alike. On 2026-11-24 the forge's first run
+of the step failed 34 tests with `aep is not on PATH`; the local forge way showed the same 34 with no aep reachable,
+before the change.
+
+On Linux that `sdc-conform` is a static build for `<arch>-unknown-linux-musl` (`cargo run --target
+<arch>-unknown-linux-musl --bin sdc-conform`), so it names the pin's static musl aep, which needs no glibc: the gnu aep
+of aep 0.81.0 needs glibc 2.39 or newer and does not start on an older host (story
+`the-driver-tests-install-the-musl-aep`). The step adds the rustup target when `rustup target list --installed` lacks
+it, and runs `aep-install` when `aep-path` finds no pinned aep; both fetch once per host, before any test. The driver
+crate has no C code, so the build needs no `musl-tools`: rustup and the host's C compiler as linker are the
+prerequisites, here and on the forge's runner, whose earlier step installs the gnu aep the tests no longer run. The
+case `aep_pin::the_aep_the_driver_tests_run_is_static` fails when the first `aep` on the tests' `PATH` asks for a
+dynamic loader (`PT_INTERP`). On other systems the step builds `sdc-conform` for the host.
 
 The local forge way runs a step's forge profile on 2 CPUs of the host it runs on (`taskset`), which came closest to
 the forge's time for `runbook/` (the forge 123 s, 2 CPUs of the build node 127 s, all 64 of them 91 s, at 4 threads):

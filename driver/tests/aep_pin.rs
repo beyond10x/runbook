@@ -178,21 +178,174 @@ fn a_cached_binary_that_is_not_the_pinned_one_is_refused() {
     assert!(String::from_utf8_lossy(&o.stderr).contains("the pin is 9.9.9"), "{}", says(&o));
 }
 
-/// The forge installs the pinned aep for a code change before its driver step, and the driver
-/// step takes the PATH directory of its tests from `aep-path`, ahead of the trap `aep`.
+/// The `PT_INTERP` program header of an ELF file, the dynamic loader a program asks for: `Ok(None)` for a static
+/// program. Reads a 64-bit little-endian ELF, the binaries of both Linux platforms of the pin.
+fn elf_interp(bytes: &[u8]) -> Result<Option<String>, String> {
+    if bytes.len() < 64 || &bytes[..4] != b"\x7fELF" {
+        return Err("not an ELF file".into());
+    }
+    if bytes[4] != 2 || bytes[5] != 1 {
+        return Err(format!("not a 64-bit little-endian ELF (class {}, data {})", bytes[4], bytes[5]));
+    }
+    let u16_at = |o: usize| u16::from_le_bytes([bytes[o], bytes[o + 1]]) as usize;
+    let u64_at = |o: usize| u64::from_le_bytes(bytes[o..o + 8].try_into().unwrap()) as usize;
+    let (phoff, phentsize, phnum) = (u64_at(0x20), u16_at(0x36), u16_at(0x38));
+    for i in 0..phnum {
+        let h = i.checked_mul(phentsize).and_then(|x| x.checked_add(phoff)).filter(|h| h.checked_add(0x28).is_some_and(|e| e <= bytes.len()));
+        let Some(h) = h else {
+            return Err(format!("program header {i} lies past the end of the file"));
+        };
+        if u32::from_le_bytes(bytes[h..h + 4].try_into().unwrap()) == 3 {
+            let (off, size) = (u64_at(h + 0x08), u64_at(h + 0x20));
+            let raw = off.checked_add(size).and_then(|end| bytes.get(off..end)).ok_or("PT_INTERP lies past the end of the file")?;
+            return Ok(Some(String::from_utf8_lossy(raw).trim_end_matches('\0').to_string()));
+        }
+    }
+    Ok(None)
+}
+
+/// The aep the driver tests run is static: the first `aep` on the `PATH` of the tests (`task test:driver` puts the
+/// directory of `sdc-conform aep-path` first, built for `<arch>-unknown-linux-musl`) has no `PT_INTERP`, so it needs
+/// no glibc and runs on a host whose glibc is older than the 2.39 the gnu aep of the pin needs. A gnu aep, the trap
+/// `aep` of `scripts/host-tool-traps` and no aep at all fail it.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_aep_the_driver_tests_run_is_static() {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let aep = std::env::split_paths(&path)
+        .map(|d| d.join("aep"))
+        .find(|p| fs::metadata(p).map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false))
+        .expect("no aep on the PATH of the tests: run them with `task test:driver`");
+    let bytes = fs::read(&aep).unwrap();
+    match elf_interp(&bytes) {
+        Ok(None) => {}
+        Ok(Some(interp)) => panic!("{} asks for the loader {interp}: the driver tests run a dynamic aep, not the static musl one", aep.display()),
+        Err(e) => panic!("{}: {e}: the driver tests run no aep binary of the pin (run them with `task test:driver`)", aep.display()),
+    }
+}
+
+/// `elf_interp` finds the loader of a dynamic program and none in a static one.
+#[cfg(target_os = "linux")]
+#[test]
+fn elf_interp_tells_a_static_program_from_a_dynamic_one() {
+    let interp = elf_interp(&fs::read("/bin/sh").unwrap()).unwrap();
+    assert!(interp.as_deref().is_some_and(|i| i.contains("ld")), "{interp:?}");
+    let mut header = vec![0u8; 64];
+    header[..4].copy_from_slice(b"\x7fELF");
+    header[4] = 2;
+    header[5] = 1;
+    assert_eq!(elf_interp(&header).unwrap(), None);
+    assert!(elf_interp(b"#!/bin/sh\nexit 127\n").is_err());
+}
+
+/// The forge runs the local gate's driver step for a code change, and that step, on Linux, installs the pinned aep
+/// with a musl `sdc-conform` and takes the PATH directory of its tests from `aep-path`, ahead of the trap `aep`. The
+/// forge's own earlier step `aep-install` installs the gnu aep, which the tests no longer run.
 #[test]
 fn the_forge_and_the_local_gate_give_the_driver_tests_the_pinned_aep() {
     let wf = fs::read_to_string(repo().join(".github/workflows/pages.yml")).unwrap();
     let steps: Vec<&str> = wf.split("\n      - ").collect();
-    let install = steps.iter().position(|s| s.contains("--bin sdc-conform -- aep-install")).expect("a forge step runs `sdc-conform aep-install`");
     let driver = steps.iter().position(|s| s.contains("run: task test:driver")).expect("a forge step runs `task test:driver`");
-    assert!(install < driver, "the pinned aep is installed before the driver step");
-    assert!(steps[install].contains("if: steps.changes.outputs.class == 'code'"), "{}", steps[install]);
+    assert!(steps[driver].contains("if: steps.changes.outputs.class == 'code'"), "{}", steps[driver]);
 
     let trap = fs::read_to_string(repo().join("scripts/host-tool-traps/aep")).unwrap();
     assert!(trap.contains("exit 127"), "{trap}");
     let tasks = fs::read_to_string(repo().join("Taskfile.yml")).unwrap();
     let task = tasks.split("\n  test:driver:\n").nth(1).unwrap().split("\n  test:runbook:\n").next().unwrap();
-    assert!(task.contains("--bin sdc-conform -- aep-path"), "{task}");
+    assert!(task.contains("musl=$(uname -m)-unknown-linux-musl"), "the step takes the musl target of this host: {task}");
+    assert!(task.contains("rustup target add \"$musl\""), "the step adds the musl target where it is missing: {task}");
+    assert!(task.contains("--target $musl --bin sdc-conform --"), "the step runs a musl sdc-conform: {task}");
+    assert!(task.contains("$conform aep-install"), "the step installs the pinned aep with it: {task}");
+    assert!(task.contains("$conform aep-path"), "{task}");
     assert!(task.contains("PATH=\"$aep_dir:$trap_dir:$PATH\""), "{task}");
+}
+
+// ---- adversary cases --------------------------------------------------------------------------
+
+/// A 64-bit little-endian ELF header with one program header of `phentsize` bytes at `phoff`.
+fn elf_header(phoff: u64, phnum: u16) -> Vec<u8> {
+    let mut h = vec![0u8; 64];
+    h[..4].copy_from_slice(b"\x7fELF");
+    h[4] = 2;
+    h[5] = 1;
+    h[0x20..0x28].copy_from_slice(&phoff.to_le_bytes());
+    h[0x36..0x38].copy_from_slice(&0x38u16.to_le_bytes());
+    h[0x38..0x3a].copy_from_slice(&phnum.to_le_bytes());
+    h
+}
+
+/// A malformed ELF whose program header offset lies past the end of the address space is refused with an error,
+/// the way `elf_interp` refuses one past the end of the file, not with a panic.
+#[test]
+fn elf_interp_refuses_a_program_header_offset_past_the_address_space() {
+    let h = elf_header(u64::MAX - 0x10, 1);
+    let got = std::panic::catch_unwind(|| elf_interp(&h));
+    assert!(matches!(got, Ok(Err(_))), "elf_interp panicked or accepted a program header offset of u64::MAX - 0x10: {:?}", got.as_ref().map_err(|_| "panic"));
+}
+
+/// A malformed ELF whose `PT_INTERP` offset lies past the end of the address space is refused with an error, not a
+/// panic.
+#[test]
+fn elf_interp_refuses_an_interp_offset_past_the_address_space() {
+    let mut f = elf_header(64, 1);
+    let mut ph = vec![0u8; 0x38];
+    ph[..4].copy_from_slice(&3u32.to_le_bytes());
+    ph[0x08..0x10].copy_from_slice(&u64::MAX.to_le_bytes());
+    ph[0x20..0x28].copy_from_slice(&2u64.to_le_bytes());
+    f.extend(ph);
+    let got = std::panic::catch_unwind(|| elf_interp(&f));
+    assert!(matches!(got, Ok(Err(_))), "elf_interp panicked or accepted a PT_INTERP offset of u64::MAX: {:?}", got.as_ref().map_err(|_| "panic"));
+}
+
+/// `task test:driver` now runs `aep-install` itself when `aep-path` finds no pinned aep, so the gates of two
+/// checkouts on one host that start after a pin change install into the one cache (`~/.cache/sdc/aep/<version>/
+/// <triple>/`) at the same time. Every one of them succeeds and leaves the pinned binary.
+#[test]
+fn installs_into_one_cache_at_the_same_time_all_succeed() {
+    let d = tmp("concurrent");
+    let t = triple();
+    let top = format!("aep-9.9.9-{t}");
+    let src = d.join("src");
+    fs::create_dir_all(src.join(&top)).unwrap();
+    let mut body = b"#!/bin/sh\necho 'aep 9.9.9'\nexit 0\n".to_vec();
+    body.extend(std::iter::repeat_n(b'#', 2 << 20));
+    body.push(b'\n');
+    let bin = src.join(&top).join("aep");
+    fs::write(&bin, &body).unwrap();
+    fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+    let archive = d.join(format!("{top}.tar.gz"));
+    assert!(Command::new("tar").arg("-czf").arg(&archive).arg("-C").arg(&src).arg(&top).status().unwrap().success());
+    let pin = d.join("aep-pin.json");
+    let platform = json!({
+        "asset": format!("{top}.tar.gz"),
+        "archive_sha256": sha_hex(&fs::read(&archive).unwrap()),
+        "member": format!("{top}/aep"),
+        "binary_sha256": sha_hex(&body),
+    });
+    fs::write(&pin, json!({"format": "sdc.aep-pin/1", "version": "9.9.9", "platforms": {t: platform}}).to_string()).unwrap();
+    let mut failed = vec![];
+    for round in 0..3 {
+        let cache = d.join(format!("cache-{round}"));
+        let kids: Vec<_> = (0..4)
+            .map(|_| {
+                Command::new(BIN)
+                    .args(["aep-install", "--archive", archive.to_str().unwrap()])
+                    .arg("--pin")
+                    .arg(&pin)
+                    .env("SDC_AEP_CACHE", &cache)
+                    .env_remove("XDG_CACHE_HOME")
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for k in kids {
+            let o = k.wait_with_output().unwrap();
+            if !o.status.success() {
+                failed.push(format!("round {round}: {}", says(&o)));
+            }
+        }
+    }
+    assert!(failed.is_empty(), "{} of 12 installs (3 rounds of 4 at once) failed: {failed:#?}", failed.len());
 }
