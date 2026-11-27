@@ -267,13 +267,16 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   when it has a model step (the operator, 2026-11-27: "A: route only for model steps";
   `story:the-default-route-wakes-for-runs-without-a-model-call`). It has one when, as the daemon reads at submit:
   - its decider is `model` above `A0`; or
-  - a bound program of its bindings (the root's, or a child's that an `open` action names) is an agent node
-    (`executor.argv` runs `sdc-node`); or
-  - such a program reserves a per-call budget above 0, read as the run reserves it: the budget its arguments name
-    (`--max-budget-usd`), else `max_budget_usd` of its action, else of its file, else the largest budget of the
-    runbook. `max_budget_usd: 0` (or `--max-budget-usd 0`) is a program that calls no model
-    (`runbook/src/budget.rs`, `calls_a_model`). Bindings that cannot be read, or that a run is refused for at load,
-    count as a model step (the run is refused at load all the same).
+  - a program the run's runner starts for its bindings (the root's, or a child's that an `open` action names) is an
+    agent node (its first word is `sdc-node`). Every program the runner starts counts: an action's `executor.argv`,
+    its `arguments_from` and its `handoff_when` check, for Loom starts each through the runner, which reserves its
+    budget and, on a route, hands it the route file; or
+  - such a program reserves a per-call budget above 0, read as the run reserves it as it starts the program
+    (`budget::Reserves::of`): the budget its arguments name (`--max-budget-usd`), else `max_budget_usd` of the action
+    whose `executor.argv` or `arguments_from` it is, else of its file, else the largest budget of the runbook.
+    `max_budget_usd: 0` (or `--max-budget-usd 0`) is a program that calls no model (`runbook/src/budget.rs`,
+    `calls_a_model`). Bindings that cannot be read, a child file that cannot be read or parsed among them, or that a
+    run is refused for at load, count as a model step (the run is refused at load all the same).
 
   Route entries (`bindings/<runbook>.routes.yaml`) make no model step: they say which route a model step takes. A run
   with no model step (a person's actions only, or programs whose budget is 0, and a decider that is no model) takes

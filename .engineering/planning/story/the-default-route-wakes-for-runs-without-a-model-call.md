@@ -7,7 +7,7 @@ title: The default route wakes a managed route for a run that makes no model cal
 summary: route_policy.default goes to every run with a bound program, so a wake_on_submit default wakes a paid model for runs that never call it
 relations:
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T10:38:24Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T10:38:24Z", actor: "agent:runbook", revision: 3}
@@ -64,13 +64,18 @@ step takes no route and wakes nothing; `[route_policy] default` applies only to 
 The rule for a model step (Acceptance 3), read from what the daemon knows at submit:
 
 - the run's decider is the kind `model` at a level above `A0` (`Terms::makes_model_calls`, `runbook/src/runtime.rs`); or
-- a bound program of the runbook's bindings, the root's or a child's that an `open` action names, is an agent node
-  (`executor.argv` runs `sdc-node`, `crate::delegation::AGENT_NODE`); or
-- such a program reserves a per-call budget above 0, read as a run reserves it (`budget::Reserves::of`): the budget its
-  arguments name (`--max-budget-usd`), else `max_budget_usd` of its action, else of its file, else the largest budget
-  of the runbook. `max_budget_usd: 0` already says "a program that calls no model" (`runbook/src/budget.rs:24-26`).
-- Bindings that cannot be read, and bindings a run is refused for at load (a refused member, a program no budget
-  covers), count as a model step; the run is refused at load all the same.
+- a program the run's runner starts for the runbook's bindings, the root's or a child's that an `open` action names,
+  is an agent node (its first word is `sdc-node`, `crate::delegation::AGENT_NODE`). Every program the runner starts
+  counts (the coordinator, 2026-11-27, after the adversary's cases): `executor.argv`, `arguments_from` and the
+  `handoff_when` check alike, since Loom starts each through the runner, which reserves its budget and passes it the
+  route file; or
+- such a program reserves a per-call budget above 0, read as the run reserves it as it starts the program
+  (`budget::Reserves::of`, `engine/gate.rs` `run_child`): the budget its arguments name (`--max-budget-usd`), else
+  `max_budget_usd` of its action, else of its file, else the largest budget of the runbook. `max_budget_usd: 0`
+  already says "a program that calls no model" (`runbook/src/budget.rs:24-26`).
+- Bindings that cannot be read (the root or a child file that cannot be read or parsed), and bindings a run is refused
+  for at load (a refused member, a program no budget covers), count as a model step; the run is refused at load all
+  the same.
 
 Route entries (`bindings/<runbook>.routes.yaml`) do not make a model step: they say which route a model step takes.
 

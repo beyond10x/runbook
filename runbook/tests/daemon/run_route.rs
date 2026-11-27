@@ -532,3 +532,68 @@ fn a_rule_run_whose_program_names_a_budget_above_0_takes_the_default_route_and_w
     let run = submitted(&l, "rule", json!({}));
     woke_by_default(&l, &gw, &run);
 }
+
+// ---- adversary of the unit: the rule "a program whose per-call budget, read as the run reserves it, is above 0" ----
+
+/// Adversary: a `handoff_when` check is a program of the run. Loom starts it through the runner every bound program
+/// starts through (`b10x-loom-bindings`, `handoff.rs`), so the daemon reserves its budget as it starts
+/// (`budget::Reserves::of`, `engine/gate.rs`, `Reserving::run_child`) and, on a route, hands it the route file
+/// (`engine/route.rs`, `RouteEnv::run_child`). A check that names `--max-budget-usd 0.2` reserves 0.2 USD: by the rule of
+/// `docs/model-routes.md`, section 2 ("a program whose per-call budget, read as the run reserves it, is above 0") the
+/// run has a model step, takes the default route and wakes it. Every other program of the runbook names 0 (the file's
+/// member), so only the check makes the model step.
+#[test]
+fn adversary_a_rule_run_whose_handoff_check_reserves_a_budget_above_0_takes_the_default_route() {
+    let h = home_without_a_model_step("rr-adv-handoff");
+    let bindings = h.home.join("bindings/autonomy-demo.yaml");
+    let text = std::fs::read_to_string(&bindings).unwrap();
+    let writer = "      argv: [tools/notes-write.sh, --max-budget-usd, \"0\"]\n";
+    assert!(text.contains(writer) && text.contains("program_root: bindings\n"), "{text}");
+    let text = text
+        .replace("program_root: bindings\n", "program_root: bindings\nmax_budget_usd: 0\n")
+        .replace(writer, &format!("{writer}    handoff: Write the notes by hand.\n    handoff_when: [tools/judge.sh, --max-budget-usd, \"0.2\"]\n"));
+    std::fs::write(&bindings, text).unwrap();
+    write_exe(&h.home.join("bindings/tools/judge.sh"), "#!/bin/sh\nexit 1\n");
+    // the premise: the run reserves 0.2 USD for the check as it starts it
+    let reserves = runbook::budget::reserves(&bindings).unwrap();
+    assert_eq!(reserves.of("tools/judge.sh", &["--max-budget-usd".to_owned(), "0.2".to_owned()]), 200_000, "the check's reservation");
+    let gw = stopped_gateway();
+    let l = serve("rr-adv-handoff-d", &h, &waking_default(&gw, &h.token_file), true);
+    let run = submitted(&l, "rule", json!({}));
+    assert_eq!(route_and_source(&row(&l, &run)), (json!("m"), json!("default")), "a run whose handoff check reserves 0.2 USD took no route: the check starts with no route file");
+}
+
+/// A bindings directory of the adversary's own with the files `files` (name, text).
+fn adversary_bindings(tag: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+    let dir = super::state::scratch(&format!("rr-adv-{tag}"));
+    for (name, text) in files {
+        std::fs::write(dir.join(name), text).unwrap();
+    }
+    dir.join(files[0].0)
+}
+
+/// Adversary: "an agent node calls a model whatever its budget" (`budget::tests`, the unit's own case) holds for
+/// `executor.argv` only. The agent node `sdc-node` as an `arguments_from` program or as a `handoff_when` check of a
+/// runbook whose budgets are 0 makes no model step, though Loom starts both through the run's runner (they get the
+/// route file on a route) and `runbook run` counts both forms as a model node
+/// (`tests/loom_run/no_model_node_guards.rs`, `forms_of_the_copy_that_must_count_as_a_model_node`).
+#[test]
+fn adversary_an_agent_node_in_arguments_from_or_handoff_when_is_a_model_step_whatever_its_budget() {
+    let child = "format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n  - action: c\n    executor: {kind: program, argv: [tools/c.sh]}\n";
+    let forms = [
+        ("arguments_from", "format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n  - action: k.open\n    executor: {kind: open, name: k, bindings: child.yaml}\n    arguments_from: [sdc-node, list]\n"),
+        ("handoff_when", "format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n  - action: a\n    executor: {kind: program, argv: [tools/a.sh]}\n    handoff: by hand\n    handoff_when: [sdc-node, check]\n"),
+    ];
+    let missed: Vec<&str> = forms.iter().filter(|(tag, root)| !runbook::budget::calls_a_model(&adversary_bindings(&format!("node-{tag}"), &[("root.yaml", root), ("child.yaml", child)]))).map(|(tag, _)| *tag).collect();
+    assert!(missed.is_empty(), "an agent node that made no model step, in: {missed:?}");
+}
+
+/// Adversary: `docs/model-routes.md`, section 2, and `Runtime::program_steps` say bindings that cannot be read count as
+/// a model step. A child bindings file an `open` action names that is no YAML is skipped (`budget::walk`), so the
+/// runbook counts as calling no model.
+#[test]
+fn adversary_bindings_whose_child_file_cannot_be_read_count_as_a_model_step() {
+    let root = "format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n  - action: a\n    executor: {kind: program, argv: [tools/a.sh]}\n  - action: k.open\n    executor: {kind: open, name: k, bindings: child.yaml}\n";
+    let path = adversary_bindings("unreadable-child", &[("root.yaml", root), ("child.yaml", "format: loom.bindings/1\nactions: [\n")]);
+    assert!(runbook::budget::calls_a_model(&path), "a runbook whose child bindings cannot be read counted as calling no model");
+}

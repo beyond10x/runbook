@@ -268,8 +268,8 @@ A row names the gateway by name; no address, port, token, token file or price is
 A `submit-run` names the route of its model calls by `model_route` (a declared route name) and, for a role that
 takes another, `model_routes` (a map from role to route name; the role `default` is the run's own). The run's
 word wins; a run that names none takes `[route_policy] default`. A run may take a route only when it has a model
-step: its decider kind is `model` and its autonomy is above `A0`, or a bound program of its runbook (of its root
-bindings or a child's) calls a model through the run's route file (`RUNBOOK_ROUTE_FILE`, below): an agent node, or a
+step: its decider kind is `model` and its autonomy is above `A0`, or a program the runner starts for its runbook (of its root
+bindings or a child's: an `executor.argv`, an `arguments_from` or a `handoff_when` check) calls a model through the run's route file (`RUNBOOK_ROUTE_FILE`, below): an agent node, or a
 program whose per-call budget, read as the run reserves it, is above 0 (its `--max-budget-usd`, else `max_budget_usd`
 of its action, else of its file, else the largest of the runbook; `max_budget_usd: 0` is a program that calls no
 model; `docs/model-routes.md`, section 2). A run with no model step takes no route, sends and books no wake and waits

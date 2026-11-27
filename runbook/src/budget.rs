@@ -363,7 +363,12 @@ fn rel_name(file: &Path, base: &Path) -> String {
 /// `open` action names, beside the file that names it, with the members of the copy put back. A
 /// file that cannot be read or parsed is skipped: Loom refuses it when the run opens it. `how` says
 /// how the files and the kept file are read; a kept file that cannot be read is an error.
-fn walk(root: &Path, how: Reading, mut visit: impl FnMut(&Path, &str, &Value) -> Result<(), String>) -> Result<(), String> {
+fn walk(root: &Path, how: Reading, visit: impl FnMut(&Path, &str, &Value) -> Result<(), String>) -> Result<(), String> {
+    walk_with(root, how, &mut |_| {}, visit)
+}
+
+/// [`walk`], telling `skipped` each file it skips because it cannot be read or parsed.
+fn walk_with(root: &Path, how: Reading, skipped: &mut dyn FnMut(&Path), mut visit: impl FnMut(&Path, &str, &Value) -> Result<(), String>) -> Result<(), String> {
     let base = root.parent().unwrap_or(Path::new("."));
     let sealed = match how {
         Reading::Path => Sealed::load(base)?,
@@ -376,7 +381,10 @@ fn walk(root: &Path, how: Reading, mut visit: impl FnMut(&Path, &str, &Value) ->
             continue;
         }
         seen.push(file.clone());
-        let Some(doc) = read_yaml(&file, how) else { continue };
+        let Some(doc) = read_yaml(&file, how) else {
+            skipped(&file);
+            continue;
+        };
         let name = rel_name(&file, base);
         let doc = sealed.restore(&name, doc);
         visit(&file, &name, &doc)?;
@@ -422,29 +430,46 @@ pub fn runbook_budgets(root: &Path) -> Result<RunbookBudgets, String> {
     Ok(out)
 }
 
+/// The argv of every program the run's runner starts for the action `a`: its `executor.argv`, its `arguments_from` and
+/// its `handoff_when` check. Loom starts each through the runner, which reserves its budget (`engine/gate.rs`,
+/// `run_child`) and, on a route, hands it the route file.
+fn started(a: &Value) -> Vec<&[Value]> {
+    [a.get("executor").and_then(|e| e.get("argv")), a.get("arguments_from"), a.get("handoff_when")].into_iter().flatten().filter_map(Value::as_sequence).map(Vec::as_slice).collect()
+}
+
+/// A word of an argv as the program gets it: a text, or a number or a boolean as YAML writes it.
+fn argv_word(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        _ => None,
+    }
+}
+
 /// Whether a program of the bindings `root` names (the root's and each child file's) calls a model, which gives a daemon
-/// run a model step (`docs/model-routes.md`, section 2): an agent node (`executor.argv` runs `sdc-node`,
-/// [`crate::delegation::AGENT_NODE`]), or a program whose per-call budget, read as [`Reserves::of`] reads it, is above 0:
-/// the largest its arguments name, else the member of its action, else of its file, else the largest of the runbook. A
-/// budget of 0 is a program that calls no model ([`MEMBER`]). Bindings a run is refused for at load (a refused budget, a
-/// program no budget covers, [`reserves`]) count as calling one.
+/// run a model step (`docs/model-routes.md`, section 2). Every program the run's runner starts counts ([`started`]): one
+/// that is an agent node (its first word is `sdc-node`, [`crate::delegation::AGENT_NODE`]), or one whose per-call budget,
+/// read as the run reserves it as it starts the program ([`Reserves::of`]), is above 0: the budget its arguments name,
+/// else the member of its action, else of its file, else the largest of the runbook. A budget of 0 is a program that
+/// calls no model ([`MEMBER`]). Bindings a run is refused for at load (a refused budget, a program no budget covers,
+/// [`reserves`]) and bindings that cannot be read (the root or a child file that cannot be read or parsed) count as
+/// calling one.
 pub fn calls_a_model(root: &Path) -> bool {
-    let Ok(Reserves { unnamed_micro_usd, .. }) = reserves(root) else { return true };
-    let mut calls = false;
-    let walked = walk(root, Reading::Path, |_, _, doc| {
-        let file_member = doc.get(MEMBER).and_then(member_usd);
+    let Ok(reserves) = reserves(root) else { return true };
+    let (mut calls, mut unread) = (false, false);
+    let walked = walk_with(root, Reading::Path, &mut |_| unread = true, |_, _, doc| {
         for a in actions(doc) {
-            let first = a.get("executor").and_then(|e| e.get("argv")).and_then(Value::as_sequence).and_then(|argv| argv.first()).and_then(Value::as_str);
-            let agent_node = first.is_some_and(|f| Path::new(f).file_name().is_some_and(|name| name == crate::delegation::AGENT_NODE[0]));
-            let member = a.get(MEMBER).and_then(member_usd).or(file_member);
-            for items in programs(a) {
-                let budget = if names_budget(items) { argv_budget(items) } else { Some(member.unwrap_or(unnamed_micro_usd)) };
-                calls |= agent_node || budget.is_none_or(|m| m > 0);
+            for items in started(a) {
+                let argv: Vec<String> = items.iter().filter_map(argv_word).collect();
+                let Some((program, args)) = argv.split_first() else { continue };
+                let agent_node = Path::new(program).file_name().is_some_and(|name| name == crate::delegation::AGENT_NODE[0]);
+                calls |= agent_node || reserves.of(program, args) > 0;
             }
         }
         Ok(())
     });
-    walked.is_err() || calls
+    walked.is_err() || unread || calls
 }
 
 /// The program of an action as its binding names it, for the end of a run whose step failed: whether it is an agent
