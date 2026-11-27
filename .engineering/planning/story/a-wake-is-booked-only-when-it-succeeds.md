@@ -7,7 +7,7 @@ title: A wake is booked only when it succeeds
 summary: A refused or failed wake of a managed route books nothing against the daily wake cap
 relations:
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 1
+revision: 2
 ---
 ## Outcome
 
@@ -18,7 +18,8 @@ says why with the gateway's code, and the run's wait for its route may send the 
 ## Context
 
 The same review of a consumer's refresh rounds (2026-11-27), item ranked second by the host's operator session. Story
-`route-wake-behind-a-daily-cap` books a wake's figure when the wake is sent, whatever the answer.
+`route-wake-behind-a-daily-cap` books a wake's figure when the wake is sent, whatever the answer. The consumer asked
+for this too.
 
 ## Evidence
 
