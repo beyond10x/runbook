@@ -90,6 +90,26 @@ fn the_repository_pins_one_release_of_aep() {
     }
 }
 
+/// A static musl build of `sdc-conform` (the musl release archive, for a host without glibc) takes the pin's
+/// `<arch>-unknown-linux-musl` archive of aep for both Linux architectures, and a gnu build the `-linux-gnu` one
+/// (`conformance::platform_for`): a pin that names no musl archive gives a musl build the gnu aep, which needs glibc.
+#[test]
+fn a_musl_build_takes_the_pinned_musl_aep() {
+    use sdc_tools::conformance::platform_for;
+    let pin: J = serde_json::from_str(&fs::read_to_string(repo().join("driver/aep-pin.json")).unwrap()).unwrap();
+    let mut bad = vec![];
+    for arch in ["x86_64", "aarch64"] {
+        for (musl, libc) in [(true, "musl"), (false, "gnu")] {
+            let want = format!("{arch}-unknown-linux-{libc}");
+            let got = platform_for(arch, "linux", musl, &pin);
+            if got != want {
+                bad.push(format!("{arch} musl={musl}: {got}, want {want}"));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
 /// `aep-install` unpacks the pinned binary from the archive into the cache, and `aep-path` names
 /// that binary: the directory `task test:driver` puts first on the `PATH` of the tests.
 #[test]

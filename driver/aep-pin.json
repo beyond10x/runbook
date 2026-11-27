@@ -1,32 +1,44 @@
 {
   "format": "sdc.aep-pin/1",
-  "version": "0.80.0",
-  "release": "https://github.com/beyond10x/aep/releases/tag/0.80.0",
-  "commit": "af11af152de1732383a5edee0da723bb72d9acb4",
+  "version": "0.81.0",
+  "release": "https://github.com/beyond10x/aep/releases/tag/0.81.0",
+  "commit": "ff194ee2305f1914578590b7b22c037cf9b88ec6",
   "platforms": {
     "aarch64-apple-darwin": {
-      "asset": "aep-0.80.0-aarch64-apple-darwin.tar.gz",
-      "archive_sha256": "ba938f0ba923e6db0bccc2fadb9face6af5858ce94a3ec61137c3323d42ca85f",
-      "member": "aep-0.80.0-aarch64-apple-darwin/aep",
-      "binary_sha256": "3757aa7160f18ce70ad9e5059bbc3a7ebb0c3aaa38d9639223fd274afd32e11e"
+      "asset": "aep-0.81.0-aarch64-apple-darwin.tar.gz",
+      "archive_sha256": "4e2fa73f646217db6069702672f99884c274ce28cf45c475f341c6295f1eb703",
+      "member": "aep-0.81.0-aarch64-apple-darwin/aep",
+      "binary_sha256": "41f922525c5b3b15a3add5493343f11d13c4b980350a628feb1733374128435f"
     },
     "aarch64-unknown-linux-gnu": {
-      "asset": "aep-0.80.0-aarch64-unknown-linux-gnu.tar.gz",
-      "archive_sha256": "a7a77202cad6a6266737d4321022953f9eff51f3d58971cbd8d6c0336d9f213a",
-      "member": "aep-0.80.0-aarch64-unknown-linux-gnu/aep",
-      "binary_sha256": "74df95868377d0f12e934aeaaad7c4a2e0cd0aed065821e340923e1db0b08cf5"
+      "asset": "aep-0.81.0-aarch64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "70004ddc5d0cb0f84c22b9d8908c67503b5a63a76bbe5937f22115cdd11d5a2e",
+      "member": "aep-0.81.0-aarch64-unknown-linux-gnu/aep",
+      "binary_sha256": "a004c2043d10220db06896726c1808ed92e91cca33f1910eef15b5fb6fa9f6f0"
+    },
+    "aarch64-unknown-linux-musl": {
+      "asset": "aep-0.81.0-aarch64-unknown-linux-musl.tar.gz",
+      "archive_sha256": "178e08a59a8fa7813e78edfc321a487ba9f1629ed865c0066f97b3e00a231921",
+      "member": "aep-0.81.0-aarch64-unknown-linux-musl/aep",
+      "binary_sha256": "e31b3b8f9d673742c73420fb885030ce26e225de50e2bd49ca5f302fc26bc5d2"
     },
     "x86_64-apple-darwin": {
-      "asset": "aep-0.80.0-x86_64-apple-darwin.tar.gz",
-      "archive_sha256": "a181d1c1a0a61b6fe96d07a8c09fba45bca3c5edf286ea8582f5c54c7b7d91aa",
-      "member": "aep-0.80.0-x86_64-apple-darwin/aep",
-      "binary_sha256": "f0a57407025293264b3a3e5c5891cc8acf29dff062e8de764e78d90243681cdc"
+      "asset": "aep-0.81.0-x86_64-apple-darwin.tar.gz",
+      "archive_sha256": "eb4e72f6570dcf69acbb9ebba755a8cf9ce5e2270a563a2a2e9b3312efed43d3",
+      "member": "aep-0.81.0-x86_64-apple-darwin/aep",
+      "binary_sha256": "aab32149a7a258981c0e1e4932d24653e60cf5bd24b5e90c3984218dd0c47be8"
     },
     "x86_64-unknown-linux-gnu": {
-      "asset": "aep-0.80.0-x86_64-unknown-linux-gnu.tar.gz",
-      "archive_sha256": "9277f3977397b540767497917bdb9666719249364901c466939343d1787d502a",
-      "member": "aep-0.80.0-x86_64-unknown-linux-gnu/aep",
-      "binary_sha256": "17cf105e64cfaf7e07a21ddd375859b5ef4f85b372d7546ec08497f112103e48"
+      "asset": "aep-0.81.0-x86_64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "11061336a90daa51fc3cc323b091fd146eac4672c8d3d6c03867671b12377139",
+      "member": "aep-0.81.0-x86_64-unknown-linux-gnu/aep",
+      "binary_sha256": "62daf70bd4634d1c8b885ce3407455e10b83c78afd27455c01b1541b9c23898d"
+    },
+    "x86_64-unknown-linux-musl": {
+      "asset": "aep-0.81.0-x86_64-unknown-linux-musl.tar.gz",
+      "archive_sha256": "f4aed999774bc9f531dff013bd163c02a050a78b2dbc96375536dafdec2a916d",
+      "member": "aep-0.81.0-x86_64-unknown-linux-musl/aep",
+      "binary_sha256": "78e50b74795fc72b7581b3721f4ee99d6af1f9a9a0d78ae3663ebc681e1af223"
     }
   }
 }
