@@ -103,6 +103,7 @@ model = "claude-sonnet-5-5"
 | `cap_micro_usd` | whole number | none: no spend limit | `--cap-micro-usd` |
 | `max_llm_calls` | whole number | none: no limit on model calls | `--max-llm-calls` |
 | `runbooks` | list of paths | none: the built-in set only | directories runbooks are loaded from, before the built-in set (below, "Runbook directories") |
+| `context_roots` | list of paths | none | the daemon's context roots, which `--context-root` of `runbook serve` adds to; a missing one is created with mode 0700 (`docs/daemon-api.md`, "Context roots"); `runbook run` does not read it |
 | `autonomy`, `decider`, `models`, `efforts`, `adapter`, `review`, `login_file` | as in `docs/loom-run-settings.md` | none | the run settings members |
 | `gateway` | table: `base_url` and `token_file` | none | as in `docs/loom-run-settings.md`, "`[gateway]`", without `token`: the file holds no token, so `gateway.token` is refused by name (an inline token goes in a `--settings` file); a relative `token_file` is relative to the file |
 
@@ -120,9 +121,9 @@ walk reads nothing inside a run, as long as the run directory is above the progr
 the run's own path. Under a confinement that binds the work directory at another path (`substrate`, at
 `/workspace`) no run directory is above it: a `runbook` started there reads the work tree's own
 `runbook.toml`, as a file of the walk. Its keys are checked like those of any file, and it has no key for a
-floor, a level, a cap, the spend ledger, the runbook directories or the gateway: a `runbook` that has `LOOM_CASE` in its
+floor, a level, a cap, the spend ledger, the runbook directories, the context roots or the gateway: a `runbook` that has `LOOM_CASE` in its
 environment (Loom gives it to every bound program) and no run directory above its working directory refuses
-`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger`, `runbooks` and `gateway`
+`confinement`, `autonomy`, `cap_micro_usd`, `max_llm_calls`, `max_wall_seconds`, `spend_ledger`, `runbooks`, `context_roots` and `gateway`
 in a file it found by the walk or in the user's directory, by name, with no value printed, and a key that would
 lower the daemon's floor is no key of any file. (The project's own file above `runs/`, which a `runbook` in a
 run reads under `local`, states its confinement as before.) `LOOM_CASE` is a hint, not a guard: a program of a

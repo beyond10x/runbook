@@ -19,7 +19,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
-const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-9\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}";
+pub(super) const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-gateway-call: gw-call-9\r\nContent-Length: 56\r\nConnection: close\r\n\r\n{\"id\":\"m\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}";
 const DOWN: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 58\r\nConnection: close\r\n\r\n{\"error\":{\"code\":\"unavailable\",\"message\":\"not ready yet\"}}";
 pub(super) const ANSWER: &str = "The answer of the free run.";
 
@@ -128,6 +128,12 @@ pub(super) fn daemon_at(tag: &str, base_url: &str, tables: &str) -> (Home, Live,
 /// [`daemon_at`] with `calls` as the daemon's `--max-llm-calls`, the cap of a run that names none and the most one may
 /// name.
 fn daemon_capped(tag: &str, base_url: &str, tables: &str, calls: &str) -> (Home, Live, std::path::PathBuf) {
+    daemon_rooted(tag, base_url, "", tables, calls, true)
+}
+
+/// [`daemon_capped`] with `head` (keys of the top level) before the tables of its `runbook.toml`, and the option
+/// `--context-root` given only when `option_root`.
+pub(super) fn daemon_rooted(tag: &str, base_url: &str, head: &str, tables: &str, calls: &str, option_root: bool) -> (Home, Live, std::path::PathBuf) {
     let h = home(tag);
     answer_runbook(&h);
     let bin = h.log.join("bin");
@@ -136,13 +142,13 @@ fn daemon_capped(tag: &str, base_url: &str, tables: &str, calls: &str) -> (Home,
     let roots = h.log.join("roots");
     std::fs::create_dir_all(roots.join("project")).unwrap();
     std::fs::write(roots.join("project/notes.txt"), "a file of the workspace\n").unwrap();
-    let file = format!("{}{tables}", gateway_table(base_url, &h.token_file));
+    let file = format!("{head}{}{tables}", gateway_table(base_url, &h.token_file));
     let path = format!(
         "{}:{}:/usr/local/bin:/usr/bin:/bin",
         bin.display(),
         repo().join("driver/target/debug").display()
     );
-    let args = [
+    let mut args = vec![
         "--runtime",
         "loom",
         "--runbook-home",
@@ -151,8 +157,6 @@ fn daemon_capped(tag: &str, base_url: &str, tables: &str, calls: &str) -> (Home,
         "local",
         "--default-confinement",
         "local",
-        "--context-root",
-        roots.to_str().unwrap(),
         "--max-wall-seconds",
         "3600",
         "--max-llm-calls",
@@ -160,6 +164,9 @@ fn daemon_capped(tag: &str, base_url: &str, tables: &str, calls: &str) -> (Home,
         "--cap-micro-usd",
         "1000000000",
     ];
+    if option_root {
+        args.extend(["--context-root", roots.to_str().unwrap()]);
+    }
     let l = live_env(
         &format!("{tag}-d"),
         &args,
@@ -172,7 +179,7 @@ fn daemon_capped(tag: &str, base_url: &str, tables: &str, calls: &str) -> (Home,
     (h, l, roots)
 }
 
-fn delegate(l: &Live, body: &Value) -> (u16, Value, Option<String>) {
+pub(super) fn delegate(l: &Live, body: &Value) -> (u16, Value, Option<String>) {
     let r = send(
         l.addr,
         "POST",
@@ -186,7 +193,7 @@ fn delegate(l: &Live, body: &Value) -> (u16, Value, Option<String>) {
 
 /// The run an accepted delegation names: the `run_id` of the event it published first (`RunSubmitted`, or
 /// `SubmitReplayed` for a replay).
-fn run_of(body: &Value) -> String {
+pub(super) fn run_of(body: &Value) -> String {
     body["published"][0]["payload"]["run_id"]
         .as_str()
         .unwrap_or_else(|| panic!("the answer names no run: {body}"))

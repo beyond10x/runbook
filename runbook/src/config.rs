@@ -35,9 +35,11 @@ pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
-const OWN_KEYS: [&str; 9] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, DELEGATION, runbook::handback::REPOSITORIES];
+const OWN_KEYS: [&str; 10] = ["runs_dir", "spend_ledger", "runbooks", CONTEXT_ROOTS, "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, DELEGATION, runbook::handback::REPOSITORIES];
 /// The table of the daemon's delegations (`classify_threshold`, and the exclude list and bounds of the context copy).
 const DELEGATION: &str = "delegation";
+/// The daemon's context roots: the directories a run's context may lie under, besides `--context-root` of `runbook serve`.
+const CONTEXT_ROOTS: &str = "context_roots";
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
 const OPTION_KEYS: [&str; 4] = ["confinement", "cap_micro_usd", "max_llm_calls", "max_wall_seconds"];
 /// The run settings members a file may carry (`docs/loom-run-settings.md`): `format`, `run`,
@@ -49,8 +51,8 @@ const MEMBER_KEYS: [&str; 8] = ["login_file", "gateway", "autonomy", "decider", 
 /// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger, the directories
 /// runbooks are loaded from, the gateway of the model programs and the model routes. The floor of the daemon has no
 /// key in any file.
-const NESTED_REFUSED_KEYS: [&str; 12] =
-    ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", "gateway", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, runbook::handback::REPOSITORIES];
+const NESTED_REFUSED_KEYS: [&str; 13] =
+    ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", CONTEXT_ROOTS, "gateway", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, runbook::handback::REPOSITORIES];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement, and no cap, call
 /// limit or ledger (`AGENTS.md`: no default that requires or implies a cap).
@@ -381,6 +383,9 @@ pub struct File {
     pub max_wall_seconds: Option<u64>,
     /// The runbook directories the file names, in its order, each made absolute against the file.
     pub runbooks: Vec<PathBuf>,
+    /// `context_roots`: the daemon's context roots the file names, in its order, each made absolute against the file (`~`
+    /// is not expanded). `runbook serve` adds the roots of `--context-root` and creates a root that is missing.
+    pub context_roots: Vec<PathBuf>,
     /// `[deciders.<kind>]`: the deciders `runbook serve` offers its runs, one table per kind. `runbook run`
     /// does not read them (it has the one `decider` of its settings); the daemon's arbiter refuses a table
     /// it cannot take, by name, when it starts.
@@ -412,6 +417,7 @@ impl File {
             && self.max_llm_calls.is_none()
             && self.max_wall_seconds.is_none()
             && self.runbooks.is_empty()
+            && self.context_roots.is_empty()
             && self.members.is_empty()
             && self.routes.is_empty()
             && self.classify_threshold.is_none()
@@ -605,16 +611,17 @@ fn path_in(top: &mut Map<String, Value>, key: &str, dir: &Path) -> Result<Option
     }
 }
 
-/// The most runbook directories a file names.
+/// The most directories a list of the file names: runbook directories, context roots.
 const MAX_RUNBOOK_DIRS: usize = 64;
 
-/// `runbooks = ["dir", ...]`: a list of paths as text, each absolute or relative to the file.
-fn runbook_dirs(top: &mut Map<String, Value>, dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let wrong = || "runbooks: a list of directories as text (a path, never content)".to_owned();
-    let Some(listed) = top.shift_remove("runbooks") else { return Ok(Vec::new()) };
+/// `runbooks = ["dir", ...]` and `context_roots = ["dir", ...]`: a list of paths as text, each absolute or relative to
+/// the file. A refusal names the key, never a value.
+fn runbook_dirs(top: &mut Map<String, Value>, key: &str, dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let wrong = || format!("{key}: a list of directories as text (a path, never content)");
+    let Some(listed) = top.shift_remove(key) else { return Ok(Vec::new()) };
     let Value::Array(items) = listed else { return Err(wrong()) };
     if items.len() > MAX_RUNBOOK_DIRS {
-        return Err(format!("runbooks: at most {MAX_RUNBOOK_DIRS} directories"));
+        return Err(format!("{key}: at most {MAX_RUNBOOK_DIRS} directories"));
     }
     items
         .into_iter()
@@ -681,7 +688,7 @@ fn read_text(found: &Found) -> Result<File, String> {
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
     if found.nested && !found.via.chosen() {
         if let Some(key) = NESTED_REFUSED_KEYS.iter().find(|k| top.contains_key(**k)) {
-            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories, the gateway, the model routes or the repositories; name the file with --config to use it)")));
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories, the context roots, the gateway, the model routes or the repositories; name the file with --config to use it)")));
         }
     }
     for key in top.keys() {
@@ -734,7 +741,8 @@ fn read_text(found: &Found) -> Result<File, String> {
             _ => return Err(fail("decider.reply_bin: a path as text".to_owned())),
         }
     }
-    let runbooks = runbook_dirs(&mut top, &dir).map_err(fail)?;
+    let runbooks = runbook_dirs(&mut top, "runbooks", &dir).map_err(fail)?;
+    let context_roots = runbook_dirs(&mut top, CONTEXT_ROOTS, &dir).map_err(fail)?;
     let deciders = match top.shift_remove("deciders") {
         None => Map::new(),
         Some(Value::Object(kinds)) if kinds.values().all(Value::is_object) => kinds,
@@ -763,7 +771,7 @@ fn read_text(found: &Found) -> Result<File, String> {
     check_members(&top).map_err(fail)?;
     let tables = runbook::routes::Tables { gateway: top.get(crate::loom_run::gateway::KEY), gateways: gateways.as_ref(), routes: routes.as_ref(), route_policy: route_policy.as_ref() };
     let routes = runbook::routes::RouteTable::declare(&tables).map_err(|e| fail(mask(&e)))?;
-    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes, classify_threshold, copy_rules, repositories })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, context_roots, deciders, members: top, routes, classify_threshold, copy_rules, repositories })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
@@ -817,6 +825,8 @@ pub struct Values {
     pub max_wall_seconds: Item<u64>,
     /// The runbook directories of the file; the built-in set follows them.
     pub runbooks: Vec<PathBuf>,
+    /// The context roots of the file; `runbook serve` adds those of `--context-root`.
+    pub context_roots: Vec<PathBuf>,
     pub settings: Option<PathBuf>,
     /// The members of the file, for the settings reader to merge under `--settings`.
     pub members: Map<String, Value>,
@@ -848,6 +858,7 @@ pub fn resolve(options: &ValueOptions, file: Option<&File>, cwd: &Path) -> Value
         max_llm_calls: pick(options.max_llm_calls, "--max-llm-calls", file.and_then(|f| f.max_llm_calls), path),
         max_wall_seconds: pick(options.max_wall_seconds, "--max-wall-seconds", file.and_then(|f| f.max_wall_seconds), path),
         runbooks: file.map(|f| f.runbooks.clone()).unwrap_or_default(),
+        context_roots: file.map(|f| f.context_roots.clone()).unwrap_or_default(),
         settings: options.settings.clone(),
         members: file.map(|f| f.members.clone()).unwrap_or_default(),
     }
@@ -928,6 +939,10 @@ pub fn text(found: Option<(&Path, Via)>, skipped: &[String], source: &Source, va
     out.push(match (&values.file, values.runbooks.is_empty()) {
         (Some(file), false) => format!("runbooks = {}  (file {})", shown(&Value::from(values.runbooks.iter().map(|d| d.display().to_string()).collect::<Vec<_>>())), file.display()),
         _ => "runbooks = []  (built-in: the built-in set only; `runbooks` in runbook.toml adds directories before it)".to_owned(),
+    });
+    out.push(match (&values.file, values.context_roots.is_empty()) {
+        (Some(file), false) => format!("context_roots = {}  (file {})", shown(&Value::from(values.context_roots.iter().map(|d| d.display().to_string()).collect::<Vec<_>>())), file.display()),
+        _ => "context_roots = []  (built-in: none; `context_roots` in runbook.toml and --context-root of runbook serve name the daemon's roots)".to_owned(),
     });
     out.push(item("confinement", "--confinement", "no built-in default, a run is refused without it", values.confinement.as_ref().map(|(c, o)| (shown(&Value::from(c.as_arg())), o))));
     out.push(item("max_wall_seconds", "--max-wall-seconds", "no built-in default, a run is refused without it", values.max_wall_seconds.as_ref().map(|(n, o)| (n.to_string(), o))));
@@ -1219,6 +1234,32 @@ mod tests {
             let e = parse(&found(text)).unwrap_err();
             assert!(e.contains(said) && !e.contains("1.5") && !e.contains("high"), "{text}: {e}");
         }
+    }
+
+    /// `context_roots` (story context-roots-are-keys-of-runbook-toml): a list of paths as text, each relative one taken
+    /// against the file's directory and `~` not expanded; anything else is refused by the key, never by a value; a file
+    /// a program of a run finds by the walk has none.
+    #[test]
+    fn the_context_roots_of_runbook_toml_are_paths_relative_to_the_file_and_a_refusal_names_the_key() {
+        let found = |text: &str, nested: bool, via: Via| Found { path: PathBuf::from("/x/runbook.toml"), via, text: text.to_owned(), nested };
+        let f = parse(&found("context_roots = [\"ctx\", \"/srv/a\", \"~/b\", \"../c\"]\n", false, Via::Option)).unwrap();
+        assert_eq!(f.context_roots, [PathBuf::from("/x/ctx"), PathBuf::from("/srv/a"), PathBuf::from("/x/~/b"), PathBuf::from("/x/../c")]);
+        assert!(!f.states_nothing() && f.members.is_empty(), "the key is the file's own, not a run setting");
+        assert!(parse(&found("runs_dir = \"r\"\n", false, Via::Option)).unwrap().context_roots.is_empty());
+        let many = format!("context_roots = [{}]\n", (0..65).map(|i| format!("\"d{i}\"")).collect::<Vec<_>>().join(", "));
+        for (text, said) in [
+            ("context_roots = \"ctx-secret\"\n", "context_roots: a list of directories as text (a path, never content)"),
+            ("context_roots = [1]\n", "context_roots: a list of directories as text (a path, never content)"),
+            ("context_roots = [\"\"]\n", "context_roots: a list of directories as text (a path, never content)"),
+            ("context_roots = [\"a\\nctx-secret\"]\n", "context_roots: a list of directories as text (a path, never content)"),
+            (many.as_str(), "context_roots: at most 64 directories"),
+        ] {
+            let e = parse(&found(text, false, Via::Option)).unwrap_err();
+            assert!(e.contains(said) && !e.contains("ctx-secret"), "{text}: {e}");
+        }
+        let nested = parse(&found("context_roots = [\"ctx\"]\n", true, Via::Walk)).unwrap_err();
+        assert!(nested.contains("context_roots: not a key of runbook.toml found by a program of a run"), "{nested}");
+        assert!(parse(&found("context_roots = [\"ctx\"]\n", true, Via::Option)).is_ok(), "a file the caller names has the key");
     }
 
     /// `[delegation] copy_exclude`, `copy_max_entries` and `copy_max_bytes` (story the-context-copy-skips-git-and-excluded-
