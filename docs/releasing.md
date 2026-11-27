@@ -39,7 +39,9 @@ the `-linux-gnu` build when it does not (`conformance::platform_for` in `driver/
 no glibc (`driver/tests/aep_pin.rs`, `a_musl_build_takes_the_pinned_musl_aep`). The ess pin (`driver/ess-pin.json`,
 ess 0.98.0) names none, because that ess release has none: `ess-install` installs the gnu ess, which needs glibc. The
 archives ship no pin file: the `sdc-conform` of an archive reads `driver/aep-pin.json` from the directory it starts
-in, so it runs from the root of a checkout or with `--pin <checkout>/driver/aep-pin.json`.
+in, so it runs from the root of a checkout or with `--pin <checkout>/driver/aep-pin.json`. `task test:driver` runs
+the same musl `sdc-conform`, built in the checkout, so the driver tests run the static aep on every Linux host
+(`docs/forge-gate.md`).
 
 A pull request that changes the workflow, a `Cargo.toml`, a `Cargo.lock` or `rust-toolchain.toml` runs the musl job
 once (build, layout, static and Alpine checks) and uploads nothing. The workflow is no required check.

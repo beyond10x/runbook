@@ -189,7 +189,8 @@ A prototype. No interface is stable. Releases are source releases at bare-versio
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
 - Unreleased since 0.14.0 (`CHANGELOG.md`, [Unreleased]): the aep pin is aep 0.81.0, which has static musl archives,
-  and a musl `sdc-conform` installs the musl aep.
+  and a musl `sdc-conform` installs the musl aep; `task test:driver` runs that static aep on every Linux host, so a
+  host with glibc older than 2.39 runs the driver tests.
 - New in 0.14.0 over 0.13.0: a release tag builds gnu and static musl archives of an installed
   prefix ([docs/releasing.md](docs/releasing.md), "The archives"); `runbook` links Loom 0.63.0; a failed model call
   booked after its step ended no longer fails a run, and a caller that hangs up ends its call at the gateway; a case of
