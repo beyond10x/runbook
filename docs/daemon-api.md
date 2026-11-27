@@ -965,7 +965,7 @@ then (see "Event streams").
 | `--principal` | none, required | Who the daemon acts as: `person:<id>` or `agent:<id>`, `<id>` of `[a-z0-9][a-z0-9._-]{0,62}`. A missing or malformed one is refused at start, exit 1, before anything is bound or written. There is no environment variable. Fixed for the life of the process: no command, header, MCP argument or HTTP member changes it. The runtime is given this principal for every answer. |
 | `--listen` | `127.0.0.1:7430` | Address to bind. Port 0 picks a free port; the line above names it. |
 | `--state-dir` | `$XDG_STATE_HOME/runbook`, else `~/.local/state/runbook` | Where the daemon keeps its record. |
-| `--context-root` | none | A directory a run's `context_path` may lie under; repeatable. With none, any `context_path` is refused. |
+| `--context-root` | none | A directory a run's `context_path` (a delegation's `workspace`) may lie under; repeatable. It adds to the `context_roots` of `runbook.toml` (see "Context roots"). With none from either, any `context_path` is refused. |
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
 | `--default-confinement` | the `confinement` of `runbook.toml` (`local` is the level `local`, `substrate` is `linux`), else none | The level of a submit that names none. The option wins over the file. It is never the floor: a default below `--min-confinement` stops the daemon at start, exit 1, with a message that names the two values and nothing else of the file. With none, a submit without a level is refused `400` by name and writes nothing. |
@@ -999,6 +999,37 @@ daemon's own stop, and they are written here only. The
 `403` the OpenAPI does declare, "not granted" with an `actor`, is another answer: this daemon
 authenticates no actor and never sends it, and the floor's `403` has `"refused": "forbidden"` and a
 `message`, never an `actor`.
+
+### Context roots
+
+A run's `context_path` and a delegation's `workspace` must lie under a context root of the daemon, or they are
+refused `context-outside-roots`. The roots are the union of the `context_roots` of `runbook.toml` and every
+`--context-root`: the option adds to the file's list and replaces none of it (story
+`context-roots-are-keys-of-runbook-toml`).
+
+```toml runbook.toml
+context_roots = ["ctx", "/srv/agent-contexts"]
+```
+
+- The key is a list of at most 64 paths as text. A relative path is taken against the directory of the file, as a
+  `token_file` is, never the working directory; `~` is not expanded. A relative `--context-root` is taken against the
+  working directory, as before. A file that a program of a run finds by the walk has no `context_roots`.
+- `runbook serve` prepares the roots after its security floor holds (the principal, the token, the listen address) and
+  before it opens its state directory, and names each on standard error with its source:
+  `runbook: context root <path> (context_roots of runbook.toml)` or `(--context-root)`.
+- A root that does not exist is created with mode 0700, its missing parents too, and the line ends `: created with
+  mode 0700`.
+- A root that exists is never changed. One with a group or other write bit stops the start: `context_roots <path>: is
+  writable by group or others (mode 0777)`. One wider than 0700 without those bits is taken and named:
+  `... has mode 0755, wider than 0700: it is not changed`.
+- A path that exists and is no directory stops the start (`context_roots <path>: is not a directory`), and so does a
+  root that cannot be read or created, with the OS error (`... cannot be created: Permission denied (os error 13)`).
+  The line names the key, or `--context-root` for a root of the option, and the path, and the daemon exits 2 as it
+  does for a refusal of `runbook.toml`, before anything is bound or written into its state directory.
+- Each root is canonicalized once; a root named twice counts once. `runbook config` prints the file's list with its
+  origin (`context_roots = [...]  (file <path>)`).
+- `Daemon::start`, the library's start, still refuses a root that is missing: creating one is the act of `runbook
+  serve`.
 
 ## Caps of a run
 

@@ -2685,6 +2685,7 @@ mod relative_state_directory {
             listen: "127.0.0.1:0".into(),
             state_dir: Some(PathBuf::from("rel-state-dir")),
             context_root: vec![],
+            file_context_roots: vec![],
             runbook_dir: None,
             runtime: "loom".into(),
             runbook_home: Some(PathBuf::from("rel-home-dir")),

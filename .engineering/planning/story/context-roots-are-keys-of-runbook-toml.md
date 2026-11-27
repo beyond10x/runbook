@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:context-roots-are-keys-of-runbook-toml
 kind: story
-status: draft
+status: active
 title: Context roots are a key of runbook.toml and are created when missing
 summary: context_roots in runbook.toml beside --context-root; a missing root is created with mode 0700 instead of stopping the start
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:runbook-toml-carries-defaults
 - informed_by: story:daemon-takes-a-delegation
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T21:42:29Z", actor: "agent:runbook", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-27T21:42:29Z", actor: "agent:runbook", revision: 4}
 ---
 ## Outcome
 
@@ -37,13 +40,23 @@ operator session).
 
 ## What this story does
 
-1. `context_roots` is a key of `runbook.toml`: a list of paths. A relative path is taken against the file's directory,
-   as `token_file` is (`runbook/src/routes.rs:174`). `~` is not expanded.
-2. The daemon's roots are the union of the file's and the option's, each canonicalized once. `runbook config` prints
-   each root with its source (file or option).
-3. A root that does not exist is created with mode 0700 (its missing parents too, with the same mode), and the
-   daemon's start log names it. A root that exists with group or other write bits is refused by name. A path that
-   exists and is not a directory is refused as today. A root that cannot be created is refused with the OS error.
+1. `context_roots` is a top-level key of `runbook.toml`: a list of at most 64 paths as text. A relative path is taken
+   against the file's directory, as `token_file` is (`runbook/src/routes.rs:174`). `~` is not expanded. A file that a
+   program of a run finds by the walk has no such key, like the other keys that widen what the daemon may read.
+2. The daemon's roots are the union of the file's and the option's: `--context-root` adds to the file's list and
+   replaces none of it. A key with one value (`confinement`) is replaced by its option; a list adds up, as the
+   `runbooks` of the file come before the built-in set, and the Acceptance takes a path under either. Each root is
+   canonicalized once and a root named twice counts once. `runbook config` prints the file's list with its origin (`file <path>`); `runbook
+   serve` names each root with its source (`context_roots of runbook.toml` or `--context-root`) on standard error when
+   it starts.
+3. `runbook serve` prepares the roots after the security floor holds (principal, token, listen address) and before it
+   opens its state directory. A root that does not exist is created with mode 0700 (its missing parents too, with the
+   same mode), and the start log names it. A root that exists is never changed: one with group or other write bits is
+   refused by name and mode; one wider than 0700 without those bits (0755) is taken and its mode named in the start
+   log. A path that exists and is not a directory is refused, and so is a root that cannot be created or read, with the
+   OS error. Each refusal names the key or the option and the path, and exits 2 like the other refusals of the
+   configuration. `Daemon::start`, the library's start, still refuses a missing root: creating one is the serve
+   command's act.
 4. `docs/daemon-api.md` and the config document name the key.
 
 ## Acceptance

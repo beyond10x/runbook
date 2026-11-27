@@ -279,6 +279,7 @@ fn the_daemons_start_refuses_two_directories_with_one_name_before_it_writes_its_
         listen: "127.0.0.1:0".to_owned(),
         state_dir: Some(rig.p("state")),
         context_root: Vec::new(),
+        file_context_roots: Vec::new(),
         runbook_dir: None,
         runtime: "loom".to_owned(),
         runbook_home: Some(rig.p("fx")),
