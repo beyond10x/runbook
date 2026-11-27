@@ -7,6 +7,9 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Fixed
+- The view `cases` no longer shows a case of a run the daemon ended at a cap as `Stuck` (story `a-case-of-a-run-ended-by-a-cap-is-not-shown-stuck`; `docs/daemon-api.md`, "The case tree of a run"; `docs/engine.md`, "The case tree of a run"). The engine gives each `run_tree` call one step, so a run that the spend cap or the call cap ended between two steps left that step's `BudgetSpent` line as its case's last stop, and the view read it as `Stuck`. A case that had not ended when the daemon ended its run at a cap is now `SpendCapReached`, `CallCapReached` or `WallCapReached`, read from the run's outcome (`stopped: spend cap`, `stopped: llm calls`, `stopped: wall time`), whatever its last stop; a tree left with no move still shows `Stuck`, and a case that waits on a person while its run waits still shows `AwaitingPerson`. The specification's `CaseState` gains the three variants; schema, OpenAPI and both conformance suites are regenerated. The run page reads the three as an open case. Tests: the two `the_open_case*_of_a_run_the_*_cap_ended_*` cases of `runbook/tests/daemon/caps.rs`.
+
 ## [0.13.0] - 2026-11-26
 
 Three entries are marked breaking: a daemon run whose decider kind is `model` reaches its model only through the

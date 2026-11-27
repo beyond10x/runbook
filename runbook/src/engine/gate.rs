@@ -93,6 +93,20 @@ impl Cap {
         }
     }
 
+    /// The cap of a run that ended with `outcome`, if that outcome is a cap's.
+    pub fn of_outcome(outcome: &str) -> Option<Cap> {
+        [Cap::Wall, Cap::Calls, Cap::Spend].into_iter().find(|c| c.outcome() == outcome)
+    }
+
+    /// The `case_state` of the view `cases` for a case that had not ended when the daemon ended its run at this cap.
+    pub fn case_state(self) -> &'static str {
+        match self {
+            Cap::Wall => "WallCapReached",
+            Cap::Calls => "CallCapReached",
+            Cap::Spend => "SpendCapReached",
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             Cap::Wall => "wall time",

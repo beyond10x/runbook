@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:2b90d569476bd89773a56b6fec05e1fb1614649244e1ef1a3f0b288120a99336",
+    "contract_digest": "slice-sha256/2:f04d7deb2075b66211fccb460ca54c4d335081b27ef67b7da7994f727f32f2be",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.CaseState": {
       "title": "CaseState",
-      "description": "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.",
+      "description": "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else SpendCapReached, CallCapReached or WallCapReached when the daemon ended the run at that cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), whatever the case's last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.",
       "x-ess-name": "sdc.daemon.CaseState",
       "x-ess-kind": "enum",
       "type": "string",
@@ -21,6 +21,9 @@
         "AwaitingPerson",
         "AwaitingAuthority",
         "Stuck",
+        "SpendCapReached",
+        "CallCapReached",
+        "WallCapReached",
         "Ended"
       ]
     }

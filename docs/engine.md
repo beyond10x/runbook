@@ -317,7 +317,11 @@ stop of its last `Stopped` run-log line; no path leaves the engine. The daemon m
 counts while the run waits on a decision, a `Stuck` or `BudgetSpent` stop once the run ended by its tree (a wait or
 a cancel that ended with the run, or an orphaned run, leaves the case `Open`: a case above one that waits records a
 `Stuck` stop of its own), and the run's step in
-flight marks its case `Running`. A read Loom refuses (a log line written at that moment) is the daemon's `503`; the
+flight marks its case `Running`. A run the daemon ended at a cap shows each case that had not ended as
+`SpendCapReached`, `CallCapReached` or `WallCapReached`, read from the run's outcome (`Cap::case_state`,
+`runbook/src/engine/gate.rs`), whatever the case's last stop: the engine gives each `run_tree` call one step, so a run
+ended at a cap between two steps leaves that step's `BudgetSpent` line last, and that case did not get stuck. The gate
+tests are the two `the_open_case*_of_a_run_the_*_cap_ended_*` cases of `runbook/tests/daemon/caps.rs`. A read Loom refuses (a log line written at that moment) is the daemon's `503`; the
 page keeps the tree it shows and reads again on the next tick. The gate tests are
 `the_cases_of_a_run_are_its_tree_with_each_case_state_and_the_tree_follows_the_run_to_its_end`,
 `a_case_whose_program_runs_is_running_while_the_run_goes_on` and

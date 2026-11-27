@@ -387,6 +387,57 @@ fn a_spend_cap_stops_the_run_before_the_reservation_over_it_and_the_ledger_belon
     assert_eq!(rig.ledger(RUNBOOK)["spent_micro_usd"], 200_000, "one runbook's spend reached another's ledger");
 }
 
+/// The view `cases` of `run` as `<name or (root)> <protocol> <case_state>` lines, each row checked against the OpenAPI
+/// row schema.
+fn case_lines(rig: &Rig, run: &str) -> Vec<String> {
+    let query = std::collections::HashMap::from([("run_id".to_string(), run.to_string())]);
+    let answer = routes::view_answer("cases", &rig.d, &query);
+    assert_eq!(answer.status, 200, "{}", answer.body);
+    let rows = answer.body["rows"].as_array().unwrap().clone();
+    rows.iter()
+        .map(|r| {
+            super::openapi::check_row("CasesOfRun", r);
+            format!("{} {} {}", r["name"].as_str().unwrap_or("(root)"), r["protocol"].as_str().unwrap(), r["case_state"].as_str().unwrap())
+        })
+        .collect()
+}
+
+#[test]
+fn the_open_case_of_a_run_the_spend_cap_or_the_call_cap_ended_names_that_cap_and_is_not_stuck() {
+    // The engine runs the tree one step at a time, so the case's last stop is the step's `BudgetSpent` line when the
+    // daemon ends the run at a cap before the next step: the case did not get stuck, the run was ended by its cap.
+    // Each model step reserves and books 0.2 USD here.
+    let rig = Rig::tweaked("caps-cases", roomy(), |home| {
+        let path = home.join("bindings/caps-demo.yaml");
+        let text = std::fs::read_to_string(&path).unwrap().replace("--max-budget-usd, \"0.3\"", "--max-budget-usd, \"0.2\"");
+        std::fs::write(&path, text).unwrap();
+    });
+    // 0.4 USD: both model steps run and spend it all, so the cap is spent before the publish
+    let spent = rig.submit(RUNBOOK, None, &[("cap_micro_usd", "400000")]);
+    // 0.3 USD: the second model step's reservation of 0.2 is over the 0.1 left, so its program is not started
+    let short = rig.submit(RUNBOOK, None, &[("cap_micro_usd", "300000")]);
+    let calls = rig.submit(RUNBOOK, None, &[("max_llm_calls", "1")]);
+    let outcomes: Vec<Value> = [&spent, &short, &calls].iter().map(|r| rig.wait_ended(r)["outcome"].clone()).collect();
+    assert_eq!(outcomes, [json!("stopped: spend cap"), json!("stopped: spend cap"), json!("stopped: llm calls")]);
+    assert_eq!(
+        [case_lines(&rig, &spent), case_lines(&rig, &short), case_lines(&rig, &calls)],
+        [["(root) caps-demo SpendCapReached"], ["(root) caps-demo SpendCapReached"], ["(root) caps-demo CallCapReached"]],
+        "the runs the spend cap ended at a step's end and at a reservation, and the run the call cap ended"
+    );
+}
+
+#[test]
+fn the_open_cases_of_a_run_the_wall_cap_ended_while_it_waited_name_that_cap_and_none_is_stuck() {
+    // The root waits on its child, which waits on a person: the root's last stop is a `Stuck` line of its own.
+    let wall = WallClock::standing();
+    let rig = Rig::clocked("caps-cases-wall", roomy(), wall.clone(), |_| {});
+    let run = rig.submit("engine-demo", None, &[("max_wall_seconds", "4")]);
+    until("the run to wait on a decision", 30, || rig.row(&run)["state"] == "WaitingOnDecision");
+    wall.advance(4);
+    assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: wall time");
+    assert_eq!(case_lines(&rig, &run), ["(root) engine-demo WallCapReached", "draft engine-draft WallCapReached"]);
+}
+
 #[test]
 fn two_runs_of_one_runbook_under_one_cap_both_finish_when_their_sum_fits() {
     let rig = Rig::new("caps-two", roomy());
