@@ -444,7 +444,10 @@ the run's workspace (`runbook/src/context_copy.rs`). It copies directories and r
   `target/` and `node_modules/`), and what the submit or delegation adds in `workspace_exclude` (at most 64
   entries). A run adds entries; it cannot remove one of the daemon's;
 - a symbolic link, and anything that is neither a directory nor a regular file, is skipped, so a link inside a
-  context root carries no file from outside it into a run.
+  context root carries no file from outside it into a run. Every directory is opened below the context root one
+  name at a time without following a link, and every file through its directory: a directory or a file swapped for a
+  link while the copy runs fails the start (`the context could not be copied into the workspace: ...`) and carries
+  nothing in.
 
 An entry is a name, matched at any depth (`target/` leaves out `target` and `a/b/target`), or a relative path from
 the context root (`docs/big/` leaves out `docs/big` and not `x/docs/big`). One that ends in `/` matches a directory

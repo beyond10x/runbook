@@ -11,6 +11,7 @@
 //! (`docs/big/`). An entry that ends in `/` matches a directory only; one without it matches a directory or a file.
 //! A name matches a whole name only: `target/` leaves out `target` and `a/target`, never `targets` or `target_x`.
 
+use crate::record_write::Held;
 use serde_json::{json, Value};
 use std::ffi::{OsStr, OsString};
 use std::fs::{File, OpenOptions, Permissions};
@@ -195,43 +196,39 @@ pub fn copy(from: &Path, to: &Path, rules: &CopyRules, extra: &[String]) -> Resu
     written.map(|()| copied)
 }
 
-/// The walk: what is copied, in an order where a directory comes before what it holds. Nothing is written.
+/// The walk: what is copied, in an order where a directory comes before what it holds. Nothing is written. Each directory
+/// is opened below the context root one name at a time without following a link (`Held::open_beneath`), and is listed
+/// through its descriptor no further than the entries left of the bound, so a directory swapped for a link fails the
+/// copy and a directory of a million names costs no more than the bound.
 fn plan(from: &Path, rules: &CopyRules, patterns: &[Pattern], exclude: Vec<String>) -> Result<(Vec<Planned>, Copied), CopyError> {
     let mut planned = Vec::new();
     let mut copied = Copied { exclude, entries: 0, bytes: 0, skipped: 0 };
     let mut stack: Vec<Vec<OsString>> = vec![Vec::new()];
+    let over_entries = CopyError::OverBound { key: "copy_max_entries", bound: rules.max_entries };
     while let Some(dir) = stack.pop() {
-        let at = join(from, &dir);
-        let named = shown(&dir);
-        let mut listed = Vec::new();
-        for entry in std::fs::read_dir(&at).map_err(|e| CopyError::Failed(format!("{named}: {e}")))? {
-            let entry = entry.map_err(|e| CopyError::Failed(format!("{named}: {e}")))?;
-            listed.push(entry);
-        }
-        listed.sort_by_key(|e| e.file_name());
-        for entry in listed {
-            let name = entry.file_name();
+        let held = Held::open_beneath(from, &join(Path::new(""), &dir)).map_err(|e| failed(from, e))?;
+        let left = rules.max_entries.saturating_sub(copied.entries + copied.skipped);
+        let most = usize::try_from(left.saturating_add(1)).unwrap_or(usize::MAX);
+        for name in held.names_within(most).map_err(|e| failed(from, e))? {
+            if copied.entries + copied.skipped + 1 > rules.max_entries {
+                return Err(over_entries);
+            }
             let mut rel = dir.clone();
             rel.push(name.clone());
-            let kind = entry.file_type().map_err(|e| CopyError::Failed(format!("{}: {e}", shown(&rel))))?;
-            let seen = copied.entries + copied.skipped + 1;
-            if seen > rules.max_entries {
-                return Err(CopyError::OverBound { key: "copy_max_entries", bound: rules.max_entries });
-            }
-            let left_out = name.as_os_str() == OsStr::new(ALWAYS_EXCLUDED)
-                || !(kind.is_dir() || kind.is_file())
-                || patterns.iter().any(|p| p.leaves_out(&rel, kind.is_dir()));
+            // a name gone since the listing is skipped as what it now is: nothing
+            let stat = held.stat(&name);
+            let (is_dir, is_file) = stat.map_or((false, false), |s| (s.is_dir(), s.is_file()));
+            let left_out = name.as_os_str() == OsStr::new(ALWAYS_EXCLUDED) || !(is_dir || is_file) || patterns.iter().any(|p| p.leaves_out(&rel, is_dir));
             if left_out {
                 copied.skipped += 1;
                 continue;
             }
             copied.entries += 1;
-            if kind.is_dir() {
+            if is_dir {
                 planned.push(Planned::Dir(join(Path::new(""), &rel)));
                 stack.push(rel);
             } else {
-                let len = entry.metadata().map_err(|e| CopyError::Failed(format!("{}: {e}", shown(&rel))))?.len();
-                copied.bytes = copied.bytes.saturating_add(len);
+                copied.bytes = copied.bytes.saturating_add(stat.map_or(0, |s| s.size));
                 if copied.bytes > rules.max_bytes {
                     return Err(CopyError::OverBound { key: "copy_max_bytes", bound: rules.max_bytes });
                 }
@@ -242,6 +239,11 @@ fn plan(from: &Path, rules: &CopyRules, patterns: &[Pattern], exclude: Vec<Strin
     Ok((planned, copied))
 }
 
+/// A failure of `Held`, its paths named from the context root (`.`).
+fn failed(from: &Path, why: String) -> CopyError {
+    CopyError::Failed(why.replace(&from.display().to_string(), "."))
+}
+
 fn join(base: &Path, rel: &[OsString]) -> PathBuf {
     let mut p = base.to_path_buf();
     for part in rel {
@@ -250,19 +252,13 @@ fn join(base: &Path, rel: &[OsString]) -> PathBuf {
     p
 }
 
-/// A relative path as a failure names it; the context root is `.`.
-fn shown(rel: &[OsString]) -> String {
-    if rel.is_empty() {
-        ".".to_owned()
-    } else {
-        join(Path::new(""), rel).display().to_string()
-    }
-}
-
-/// Writes what the plan saw. A file read is held to the bytes left of the bound, so a context that grows during the copy
-/// is refused as one over the bound; a file that is no longer a regular file fails the copy.
+/// Writes what the plan saw. Each file is opened through its directory, itself opened below the context root without
+/// following a link, and with `O_NOFOLLOW | O_NONBLOCK` at its own name: a directory or a file swapped for a link, or a
+/// file swapped for a pipe, fails the copy. A file read is held to the bytes left of the bound, so a context that grows
+/// during the copy is refused as one over the bound.
 fn write(from: &Path, to: &Path, planned: &[Planned], max_bytes: u64, tops: &mut Vec<PathBuf>) -> Result<(), CopyError> {
     let mut left = max_bytes;
+    let mut parent: Option<(PathBuf, Held)> = None;
     for p in planned {
         let rel = match p {
             Planned::Dir(rel) | Planned::File(rel) => rel,
@@ -270,17 +266,22 @@ fn write(from: &Path, to: &Path, planned: &[Planned], max_bytes: u64, tops: &mut
         if rel.components().count() == 1 {
             tops.push(rel.clone());
         }
-        let failed = |e: std::io::Error| CopyError::Failed(format!("{}: {e}", rel.display()));
+        let io_failed = |e: std::io::Error| CopyError::Failed(format!("{}: {e}", rel.display()));
         match p {
-            Planned::Dir(_) => std::fs::create_dir_all(to.join(rel)).map_err(failed)?,
+            Planned::Dir(_) => std::fs::create_dir_all(to.join(rel)).map_err(io_failed)?,
             Planned::File(_) => {
-                let src = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(from.join(rel)).map_err(failed)?;
-                let meta = src.metadata().map_err(failed)?;
+                let (dir, name) = (rel.parent().unwrap_or(Path::new("")), rel.file_name().unwrap_or_default());
+                if parent.as_ref().is_none_or(|(at, _)| at != dir) {
+                    parent = Some((dir.to_path_buf(), Held::open_beneath(from, dir).map_err(|e| failed(from, e))?));
+                }
+                let held = &parent.as_ref().expect("opened above").1;
+                let src = held.open_as_is(name).map_err(io_failed)?;
+                let meta = src.metadata().map_err(io_failed)?;
                 if !meta.is_file() {
                     return Err(CopyError::Failed(format!("{}: no longer a regular file", rel.display())));
                 }
-                let mut dst = OpenOptions::new().write(true).create(true).truncate(true).custom_flags(libc::O_NOFOLLOW).open(to.join(rel)).map_err(failed)?;
-                let n = std::io::copy(&mut (&src).take(left.saturating_add(1)), &mut dst).map_err(failed)?;
+                let mut dst = OpenOptions::new().write(true).create(true).truncate(true).custom_flags(libc::O_NOFOLLOW).open(to.join(rel)).map_err(io_failed)?;
+                let n = std::io::copy(&mut (&src).take(left.saturating_add(1)), &mut dst).map_err(io_failed)?;
                 if n > left {
                     return Err(CopyError::OverBound { key: "copy_max_bytes", bound: max_bytes });
                 }
