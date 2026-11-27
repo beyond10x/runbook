@@ -16,6 +16,12 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+/// A musl build allocates through mimalloc: musl's own allocator is slow for work that allocates much. The feature
+/// `mimalloc` (on by default) adds the crate for a `musl` target only, so a gnu build keeps the system allocator.
+#[cfg(all(feature = "mimalloc", target_env = "musl"))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser)]
 #[command(name = "runbook", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("RUNBOOK_COMMIT"), ")"), about = "Run a runbook: a fixed, checked way to handle a case")]
 struct Cli {

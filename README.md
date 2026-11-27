@@ -103,6 +103,20 @@ The installed `runbook` runs from any directory and needs no checkout (`runbook 
 commit; `runbook doctor` lists what it found and what is missing). With your own `protocol/` and `bindings/`
 directories, name them: `runbook run <name> --protocols <dir> --bindings <dir> ...`.
 
+Or take a release archive instead of building: a release tag builds two archives of such a prefix
+(`.github/workflows/release.yml`), each with a `.sha256` file, and puts them on the tag's GitHub Release:
+`runbook-<version>-x86_64-unknown-linux-gnu.tar.gz` (needs glibc) and
+`runbook-<version>-x86_64-unknown-linux-musl.tar.gz` (static: every program runs without a C library, such as in
+an `alpine` container; its `runbook` allocates through mimalloc). Check one and unpack it where the prefix should
+be; the directory holds `bin/`, `libexec/runbook/` and `share/runbook/` as the script writes them, and its `bin`
+goes on `PATH` as above:
+
+```console
+sha256sum --check runbook-<version>-<triple>.tar.gz.sha256
+tar -xzf runbook-<version>-<triple>.tar.gz
+runbook-<version>-<triple>/bin/runbook --version
+```
+
 The dry run uses an idea text you give it (`--intake`) and stub executors that write the
 artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`:
 
@@ -174,7 +188,9 @@ A prototype. No interface is stable. Releases are source releases at bare-versio
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.13.0 over 0.12.0 (nothing is unreleased): the daemon declares named model routes, starts a run only on a
+- Unreleased since 0.13.0 (`CHANGELOG.md`, [Unreleased]): `runbook` links Loom 0.63.0, and a release tag builds gnu and
+  static musl archives of an installed prefix ([docs/releasing.md](docs/releasing.md), "The archives").
+- New in 0.13.0 over 0.12.0: the daemon declares named model routes, starts a run only on a
   route that can answer, relays and books every model call of a run on a route, takes a delegation and lists what a
   delegation may name; a Claude Code session with the plugin delegates through it; the daemon's run page watches a
   live run and shows its case tree, products, metrics and route; a command of a program step has its own deadline,

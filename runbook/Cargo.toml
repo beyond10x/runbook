@@ -21,12 +21,19 @@ uuid = { version = "1", default-features = false, features = ["v7", "std"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
 futures-util = { version = "0.3", default-features = false }
 sdc_tools = { path = "../driver", package = "sdc-tools" }
-b10x-loom-intake-slice = { git = "https://github.com/beyond10x/loom", rev = "112a97e1ba0a2442dbdb0ddea82f100fa1e50970" }
-b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "112a97e1ba0a2442dbdb0ddea82f100fa1e50970" }
-b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "112a97e1ba0a2442dbdb0ddea82f100fa1e50970" }
-b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "112a97e1ba0a2442dbdb0ddea82f100fa1e50970" }
-b10x-loom-bindings = { git = "https://github.com/beyond10x/loom", rev = "112a97e1ba0a2442dbdb0ddea82f100fa1e50970" }
+b10x-loom-intake-slice = { git = "https://github.com/beyond10x/loom", rev = "b0a0dfda31f722d5b38208f6fb9d90edacd7165b" }
+b10x-loom-tree ={ git = "https://github.com/beyond10x/loom", rev = "b0a0dfda31f722d5b38208f6fb9d90edacd7165b" }
+b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "b0a0dfda31f722d5b38208f6fb9d90edacd7165b" }
+b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "b0a0dfda31f722d5b38208f6fb9d90edacd7165b" }
+b10x-loom-bindings = { git = "https://github.com/beyond10x/loom", rev = "b0a0dfda31f722d5b38208f6fb9d90edacd7165b" }
 b10x-canon = { git = "https://github.com/beyond10x/canon", tag = "0.11.0" }
+
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { version = "0.1.52", optional = true, default-features = false }
+
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
 
 [profile.dev.package."*"]
 opt-level = 1
