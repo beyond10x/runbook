@@ -117,11 +117,24 @@ pub struct Terms {
 
 impl Terms {
     /// Whether the decider of a run with these terms makes model calls: it is the kind `model` at a level above `A0`.
-    /// Such a run takes a model route (`docs/model-routes.md`, section 2), and so does a run whose runbook runs a program
-    /// (`Runtime::runs_programs`); any other run takes none, and a submit for it that names one is refused.
+    /// Such a run takes a model route (`docs/model-routes.md`, section 2), and so does a run whose runbook has a program
+    /// that calls a model (`Runtime::program_steps`); any other run takes none.
     pub fn makes_model_calls(&self) -> bool {
         self.decider.as_deref() == Some("model") && self.autonomy.is_some_and(|l| l != Autonomy::A0)
     }
+}
+
+/// The bound programs of a runbook, as the route of its run reads them (`docs/model-routes.md`, section 2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProgramSteps {
+    /// No bound program and no agent node: a submit for a run of it whose decider is no model and that names a route is
+    /// refused.
+    NoProgram,
+    /// Bound programs, none of which calls a model: no agent node, and the per-call budget of each is 0. A run of it whose
+    /// decider is no model takes no route, also when its submit names one.
+    NoModelCall,
+    /// An agent node, or a bound program whose per-call budget is above 0 (`crate::budget::calls_a_model`): a model step.
+    ModelCall,
 }
 
 /// The setting that chose a run's route.
@@ -440,12 +453,11 @@ pub trait Runtime: Send + Sync + 'static {
         None
     }
 
-    /// Whether a run of the runbook runs a program: a bound program or an agent node of its bindings (the root's or a
-    /// child's), any of which may call a model through the run's route file (`docs/model-routes.md`, section 11). Such a
-    /// run may take a model route whatever its decider. Asked at submit. The default (the stub, whose runbooks are
-    /// scripts that call no model): no.
-    fn runs_programs(&self, _runbook: &str, _version: Option<&str>) -> bool {
-        false
+    /// The bound programs of a run of the runbook, the root's or a child's, as the run's route reads them
+    /// (`docs/model-routes.md`, sections 2 and 11): a run whose programs call a model may take a model route whatever its
+    /// decider. Asked at submit. The default (the stub, whose runbooks are scripts that call no model): no program.
+    fn program_steps(&self, _runbook: &str, _version: Option<&str>) -> ProgramSteps {
+        ProgramSteps::NoProgram
     }
 
     /// Whether a run on a route can start here: the daemon's relay answers runs (a loopback listener). Where it does
