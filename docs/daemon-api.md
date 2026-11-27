@@ -357,13 +357,23 @@ it joins a wake already sent:
   `spend-ceiling`, the run ends `stopped: route` at once, its `runbook.route-wait-ended` naming the ceiling.
 - The wake is booked before it is sent, under the lock of the daemon's state, in the run event `runbook.route-wake`:
   `{"route", "sent": true, "day", "cost_micro_usd", "booked_micro_usd", "cap_micro_usd"}`. `day` is the date (UTC) of
-  the daemon's clock; `booked_micro_usd` is what the route's sent wakes of that day add up to with this one. The
-  booking is the journal's, so a daemon started again counts the wakes of the day it booked before.
+  the daemon's clock; `booked_micro_usd` is what the route's wakes of that day that the gateway took or has not
+  answered yet add up to with this one. The booking is the journal's, so a daemon started again counts the wakes of
+  the day it booked before.
 - A wake the rest of the day's cap does not cover is not sent: the event says `"sent": false, "reason": "wake cap
   reached"` with what the day booked so far, and the run waits as any run that waits.
 - The gateway's answer is the run event `runbook.route-wake-answered`: `{"route", "status"}` (`status` null when it
-  did not answer within 5 s) and `code`, the gateway's error code, when it gave one. A wake that was sent stays
-  booked, whatever the answer.
+  did not answer within 5 s) and `code`, the gateway's error code, when it gave one.
+- A wake books only when the gateway took it: a `2xx` answer (story `a-wake-is-booked-only-when-it-succeeds`). A `4xx`,
+  a `5xx` (`target-unavailable` when the pod's start failed, `spend-ceiling`) or no answer within 5 s books nothing;
+  the record of its send keeps the figure it held while it was out, and a wake not answered yet counts as booked, so
+  two runs cannot both pass the cap while their wakes are out.
+- A wake answered with a `5xx` other than `spend-ceiling`, or not answered within 5 s, is sent again 30 s of the
+  daemon's clock later (`WAKE_AGAIN_AFTER_MILLIS`, `runbook/src/commands.rs`) while the gateway still gives the model
+  as `stopped`, and again after each such answer, but only before the run's wait for its route is over (the least
+  `start_wait_seconds` of its routes that cannot answer): none is sent at or past its end. Each try is one more
+  `runbook.route-wake` and `runbook.route-wake-answered` of the run, booked and capped as above; a try joins no wake.
+  A `4xx` is not sent again.
 - The answer `spend-ceiling` (a pod start would pass a cap of the gateway) ends the run at once: `Ended`, outcome
   `stopped: route` (command `EndRouteWait`), and its `runbook.route-wait-ended` names the ceiling:
   `{"route", "phase", "ceiling": "spend-ceiling"}`. Any other answer leaves the run waiting for its route.

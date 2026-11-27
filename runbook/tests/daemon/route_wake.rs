@@ -25,24 +25,40 @@ use std::time::{Duration, Instant};
 const TOKEN: &str = "gw-wake-3c91f0a7d2e6";
 const WAKE: &str = "POST /v1/models/qwen/wake";
 
-/// What the stand-in answers: the phase of `qwen` and the status and body of its wake.
+/// One answer of the stand-in to a wake: a status and a body, or none (it holds the request open past the daemon's
+/// bound of 5 s for an answer, then closes it).
+#[derive(Clone)]
+enum WakeSaid {
+    Answer(u16, Value),
+    Silent,
+}
+
+/// What the stand-in answers: the phase of `qwen`, the answers to the next wakes in order and, once those are given,
+/// the status and body of every wake.
 struct Said {
     phase: &'static str,
+    next: std::collections::VecDeque<WakeSaid>,
     wake: (u16, Value),
 }
 
 struct Gateway {
     base_url: String,
     heads: Arc<Mutex<Vec<String>>>,
+    said: Arc<Mutex<Said>>,
 }
 
 impl Gateway {
     fn start(phase: &'static str, wake: (u16, Value)) -> Gateway {
+        Gateway::start_with(phase, Vec::new(), wake)
+    }
+
+    /// A stand-in that answers the first wakes as `next` says, in order, and every later one `wake`.
+    fn start_with(phase: &'static str, next: Vec<WakeSaid>, wake: (u16, Value)) -> Gateway {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
-        let said = Arc::new(Mutex::new(Said { phase, wake }));
+        let said = Arc::new(Mutex::new(Said { phase, next: next.into(), wake }));
         let heads = Arc::new(Mutex::new(Vec::new()));
-        let (s, kept) = (said, heads.clone());
+        let (s, kept) = (said.clone(), heads.clone());
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
@@ -58,21 +74,53 @@ impl Gateway {
                 let head = String::from_utf8_lossy(&head).into_owned();
                 let line: String = head.lines().next().unwrap_or("").rsplit_once(' ').map(|(l, _)| l.to_owned()).unwrap_or_default();
                 kept.lock().unwrap().push(head);
-                let (code, body) = {
-                    let said = s.lock().unwrap();
+                let said = {
+                    let mut said = s.lock().unwrap();
                     match line.as_str() {
-                        "GET /ready" => (200, json!({"ready": true})),
-                        "GET /v1/models" => (200, json!({"object": "list", "data": [{"id": "qwen", "wires": ["chat"]}, {"id": "claude", "wires": ["messages"]}]})),
-                        "GET /v1/models/qwen/status" => (200, json!({"model": "qwen", "phase": said.phase})),
-                        WAKE => said.wake.clone(),
-                        _ => (404, json!({"error": {"code": "not-found"}})),
+                        "GET /ready" => WakeSaid::Answer(200, json!({"ready": true})),
+                        "GET /v1/models" => WakeSaid::Answer(200, json!({"object": "list", "data": [{"id": "qwen", "wires": ["chat"]}, {"id": "claude", "wires": ["messages"]}]})),
+                        "GET /v1/models/qwen/status" => WakeSaid::Answer(200, json!({"model": "qwen", "phase": said.phase})),
+                        WAKE => {
+                            let wake = said.wake.clone();
+                            said.next.pop_front().unwrap_or(WakeSaid::Answer(wake.0, wake.1))
+                        }
+                        _ => WakeSaid::Answer(404, json!({"error": {"code": "not-found"}})),
                     }
                 };
-                let body = body.to_string();
-                let _ = stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+                match said {
+                    WakeSaid::Answer(code, body) => {
+                        let body = body.to_string();
+                        let _ = stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
+                    }
+                    // held open on a thread of its own, so the reads after it are answered
+                    WakeSaid::Silent => {
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_secs(6));
+                            drop(stream);
+                        });
+                    }
+                }
             }
         });
-        Gateway { base_url, heads }
+        Gateway { base_url, heads, said }
+    }
+
+    fn set_phase(&self, phase: &'static str) {
+        self.said.lock().unwrap().phase = phase;
+    }
+
+    /// How often the stand-in was asked the status of `qwen`.
+    fn status_reads(&self) -> usize {
+        self.lines().iter().filter(|l| *l == "GET /v1/models/qwen/status").count()
+    }
+
+    /// Waits until the daemon read the status of `qwen` once more than `before`: the run's wait looked at its clock.
+    fn until_read_after(&self, before: usize) {
+        let limit = Instant::now() + Duration::from_secs(10);
+        while self.status_reads() <= before {
+            assert!(Instant::now() < limit, "no read: {:?}", self.lines());
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn lines(&self) -> Vec<String> {
@@ -374,7 +422,140 @@ fn a_spend_ceiling_answer_ends_the_run_stopped_route_naming_the_ceiling() {
     assert_eq!(records(&d, &run, "runbook.route-wake-answered"), vec![json!({"route": "qwen", "status": 503, "code": "spend-ceiling"})]);
     assert_eq!(records(&d, &run, "runbook.route-wait-ended"), vec![json!({"route": "qwen", "phase": "stopped", "ceiling": "spend-ceiling"})]);
     assert_eq!(gw.wakes(), 1);
-    // the wake was sent, so it stays booked against the day's cap
+    // the wake's record at its send holds the figure it reserved; its 503 answer then books nothing (story
+    // a-wake-is-booked-only-when-it-succeeds, the cases below)
     assert_eq!(records(&d, &run, "runbook.route-wake")[0]["booked_micro_usd"], 100);
+    gw.no_call();
+}
+
+/// The records of the run's events of `kind`, once there are `n`.
+fn until_n_records(d: &Daemon, run: &str, kind: &str, n: usize) -> Vec<Value> {
+    let limit = Instant::now() + Duration::from_secs(15);
+    loop {
+        let r = records(d, run, kind);
+        if r.len() >= n {
+            return r;
+        }
+        assert!(Instant::now() < limit, "the run has {} events {kind}, not {n}: {:?}", r.len(), d.events_after(run, 0));
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The gateway's answer to a wake whose pod could not start (the gateway logged `no-capacity`).
+fn unavailable() -> WakeSaid {
+    WakeSaid::Answer(503, json!({"error": {"code": "target-unavailable", "message": "the pod start failed: no-capacity"}}))
+}
+
+fn sent(booked: u64, cap: u64) -> Value {
+    json!({"route": "qwen", "sent": true, "day": "2026-11-26", "cost_micro_usd": 100, "booked_micro_usd": booked, "cap_micro_usd": cap})
+}
+
+/// Story `a-wake-is-booked-only-when-it-succeeds`: a wake the gateway answered 503 books nothing, the run's record names
+/// the gateway's code, and the run's wait sends the wake again after a pause of 30 s of the daemon's clock. The third
+/// wake is answered 202 and is the only one booked; the run starts once the route is ready, and a fourth wake of the
+/// same day (another run's) is still under the cap of 250 that three booked wakes would have passed.
+#[test]
+fn a_wake_answered_503_books_nothing_and_is_sent_again_after_a_pause_and_only_the_202_is_booked() {
+    let gw = Gateway::start_with("stopped", vec![unavailable(), unavailable()], (202, json!({"model": "qwen", "phase": "starting"})));
+    let dir = super::state::scratch("wake-retry");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(250, 100), clock.clone());
+    let first = submit(&d, "qwen");
+    let answered = until_n_records(&d, &first, "runbook.route-wake-answered", 1);
+    assert_eq!(answered, vec![json!({"route": "qwen", "status": 503, "code": "target-unavailable"})]);
+    assert_eq!(records(&d, &first, "runbook.route-wake"), vec![sent(100, 250)]);
+
+    // no second wake within the pause: the run reads its route and sends nothing more
+    let reads = gw.status_reads();
+    clock.set("2026-11-26T10:00:29.999Z");
+    gw.until_read_after(reads);
+    assert_eq!(gw.wakes(), 1, "a wake was sent again within the pause");
+
+    // the second try: the first booked nothing, so this one's booking is the day's only one
+    clock.set("2026-11-26T10:00:30Z");
+    let answered = until_n_records(&d, &first, "runbook.route-wake-answered", 2);
+    assert_eq!(answered[1], json!({"route": "qwen", "status": 503, "code": "target-unavailable"}));
+    assert_eq!(records(&d, &first, "runbook.route-wake"), vec![sent(100, 250), sent(100, 250)]);
+
+    // the third try is answered 202 and booked once
+    clock.set("2026-11-26T10:01:00Z");
+    let answered = until_n_records(&d, &first, "runbook.route-wake-answered", 3);
+    assert_eq!(answered[2], json!({"route": "qwen", "status": 202}));
+    assert_eq!(records(&d, &first, "runbook.route-wake"), vec![sent(100, 250), sent(100, 250), sent(100, 250)]);
+    assert_eq!(gw.wakes(), 3);
+
+    // the pod is ready: the run starts and ends
+    gw.set_phase("ready");
+    clock.set("2026-11-26T10:01:05Z");
+    let r = until_state(&d, &first, "Ended");
+    assert_eq!(r["outcome"], "done", "{r}");
+
+    // a wake of another run later that day (after the wait of the last one) books on top of the one 202: 200 of 250
+    gw.set_phase("stopped");
+    clock.set("2026-11-26T10:11:00Z");
+    let second = submit(&d, "qwen");
+    until_n_records(&d, &second, "runbook.route-wake-answered", 1);
+    assert_eq!(records(&d, &second, "runbook.route-wake"), vec![sent(200, 250)]);
+    assert_eq!(gw.wakes(), 4);
+
+    // the booking is the journal's: a daemon started again counts the one 202 and the second run's wake, not the 503s
+    d.stop();
+    drop(d);
+    gw.set_phase("stopped");
+    clock.set("2026-11-26T10:30:00Z");
+    let d = daemon_in(&dir, &gw, wake_on(350, 100), clock.clone());
+    let third = submit(&d, "qwen");
+    until_n_records(&d, &third, "runbook.route-wake-answered", 1);
+    assert_eq!(records(&d, &third, "runbook.route-wake"), vec![sent(300, 350)]);
+    gw.no_call();
+}
+
+/// A wake answered 5xx is sent again only within the run's wait: the route's `start_wait_seconds` of 60 lets two tries
+/// (0 s and 30 s) through, and the wait ends the run `stopped: route` at 60 s without a third. Neither 503 stays booked.
+#[test]
+fn a_wake_answered_5xx_is_sent_again_within_the_wait_and_never_past_it() {
+    let gw = Gateway::start_with("stopped", vec![unavailable(), unavailable()], (202, json!({})));
+    let dir = super::state::scratch("wake-retry-bound");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let mut wake = wake_on(250, 100);
+    wake["start_wait_seconds"] = json!(60);
+    let d = daemon_in(&dir, &gw, wake.clone(), clock.clone());
+    let run = submit(&d, "qwen");
+    until_n_records(&d, &run, "runbook.route-wake-answered", 1);
+    clock.set("2026-11-26T10:00:30Z");
+    until_n_records(&d, &run, "runbook.route-wake-answered", 2);
+    // the next try would fall at the end of the wait: none is sent, the run ends on its wait
+    clock.set("2026-11-26T10:01:00Z");
+    let r = until_state(&d, &run, "Ended");
+    assert_eq!(r["outcome"], "stopped: route", "{r}");
+    assert_eq!(gw.wakes(), 2, "a wake was sent at or past the end of the wait");
+    let tries = records(&d, &run, "runbook.route-wake");
+    assert_eq!(tries.len(), 2, "each try is one line of the run's record: {tries:?}");
+    assert!(tries.iter().all(|t| t["booked_micro_usd"] == 100), "{tries:?}");
+
+    // the next run of the day (after the wait of the last try) books its wake on top of nothing
+    clock.set("2026-11-26T10:02:00Z");
+    let next = submit(&d, "qwen");
+    until_n_records(&d, &next, "runbook.route-wake-answered", 1);
+    assert_eq!(records(&d, &next, "runbook.route-wake"), vec![sent(100, 250)]);
+    gw.no_call();
+}
+
+/// A wake whose answer never comes (the stand-in holds it past the daemon's bound of 5 s) books nothing, its record has
+/// `status` null, and it is sent again after the pause like a 5xx. Takes about 5 s: the bound of a wake.
+#[test]
+fn a_wake_with_no_answer_books_nothing_and_is_sent_again_after_the_pause() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Silent], (202, json!({})));
+    let dir = super::state::scratch("wake-retry-silent");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(250, 100), clock.clone());
+    let run = submit(&d, "qwen");
+    let answered = until_n_records(&d, &run, "runbook.route-wake-answered", 1);
+    assert_eq!(answered, vec![json!({"route": "qwen", "status": null})]);
+    clock.set("2026-11-26T10:00:30Z");
+    let answered = until_n_records(&d, &run, "runbook.route-wake-answered", 2);
+    assert_eq!(answered[1], json!({"route": "qwen", "status": 202}));
+    assert_eq!(records(&d, &run, "runbook.route-wake"), vec![sent(100, 250), sent(100, 250)]);
+    assert_eq!(gw.wakes(), 2);
     gw.no_call();
 }

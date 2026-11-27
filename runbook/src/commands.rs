@@ -851,10 +851,18 @@ fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) 
         })
 }
 
+/// How long a run that sent a wake the gateway could not serve waits before it sends it again, in milliseconds of the
+/// daemon's clock (`docs/model-routes.md`, section 3 point 4): within the run's wait for its route, never past it.
+pub const WAKE_AGAIN_AFTER_MILLIS: i64 = 30_000;
+
 /// What a wake of [`Daemon::wake_route`] came to for the run.
 enum Woke {
-    /// Sent and answered other than `spend-ceiling`, or not sent (no cap, the cap reached, a booking not written).
+    /// Sent and answered other than `spend-ceiling`, a 5xx or no answer, or not sent (no cap, the cap reached, a booking
+    /// not written).
     Sent,
+    /// Sent and answered a 5xx other than `spend-ceiling`, or not answered in time: it booked nothing, and the run sends
+    /// it again after [`WAKE_AGAIN_AFTER_MILLIS`] within its wait.
+    Failed,
     /// The gateway answered `spend-ceiling`.
     Ceiling,
     /// The run joined the wake the named run sent within the route's wait.
@@ -866,14 +874,36 @@ fn answered_ceiling(st: &State, run: &str, route: &str) -> bool {
     st.events_after(Some(run), None, 0).iter().any(|e| e.kind == ROUTE_WAKE_ANSWERED && e.record["route"] == route && e.record["code"] == crate::routes::SPEND_CEILING)
 }
 
+/// Whether the record of a `runbook.route-wake-answered` says the gateway took the wake: a 2xx answer.
+fn wake_taken(answer: &Value) -> bool {
+    answer["status"].as_u64().is_some_and(|s| (200..300).contains(&s))
+}
+
 /// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
-/// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them.
+/// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them. A wake
+/// books only when the gateway took it: its answer (the next `runbook.route-wake-answered` of the same run and route,
+/// a run sends one wake at a time) is a 2xx. A wake whose answer is not written yet stays booked, so two runs cannot
+/// both pass the cap while their wakes are out; a 5xx, a 4xx or no answer books nothing.
 fn wakes_booked(st: &State, route: &str, day: &str) -> u64 {
-    st.events_after(None, None, 0)
-        .into_iter()
-        .filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == true && e.record["route"] == route && e.record["day"] == day)
-        .filter_map(|e| e.record["cost_micro_usd"].as_u64())
-        .fold(0u64, u64::saturating_add)
+    // the figures of each run's wakes not yet answered, oldest first: an answer is the answer of the oldest
+    let mut out: HashMap<String, std::collections::VecDeque<u64>> = HashMap::new();
+    let mut booked = 0u64;
+    for e in st.events_after(None, None, 0) {
+        if e.record["route"] != route {
+            continue;
+        }
+        if e.kind == ROUTE_WAKE && e.record["sent"] == true {
+            let cost = if e.record["day"] == day { e.record["cost_micro_usd"].as_u64().unwrap_or(0) } else { 0 };
+            out.entry(e.run_id.clone()).or_default().push_back(cost);
+        } else if e.kind == ROUTE_WAKE_ANSWERED {
+            if let Some(cost) = out.get_mut(&e.run_id).and_then(std::collections::VecDeque::pop_front) {
+                if wake_taken(&e.record) {
+                    booked = booked.saturating_add(cost);
+                }
+            }
+        }
+    }
+    out.values().flatten().fold(booked, |sum, cost| sum.saturating_add(*cost))
 }
 
 /// Why a route of the run cannot take it at the submit.
@@ -2393,12 +2423,15 @@ impl Daemon {
         };
         // the wakes this run joined: route, phase and the run that sent the wake
         let mut joined: Vec<(String, Option<String>, String)> = Vec::new();
+        // the wakes the gateway did not serve: route, phase and when to send it again
+        let mut again: Vec<(String, Option<String>, i64)> = Vec::new();
         for (name, phase) in &wait.wake {
             if cancel.load(Ordering::SeqCst) || self.is_stopping() {
                 return false;
             }
-            match self.wake_route(run_id, name) {
+            match self.wake_route(run_id, name, false) {
                 Woke::Sent => {}
+                Woke::Failed => again.push((name.clone(), phase.clone(), self.st().now_millis().saturating_add(WAKE_AGAIN_AFTER_MILLIS))),
                 Woke::Ceiling => return ceiling(name, phase),
                 Woke::Joined(run) => joined.push((name.clone(), phase.clone(), run)),
             }
@@ -2433,6 +2466,24 @@ impl Daemon {
             if now >= deadline {
                 let _ = self.end_route_wait(run_id, Some(&route), phase.as_deref());
                 return false;
+            }
+            // a wake the gateway did not serve is sent again after its pause, before the wait is over, while the gateway
+            // still gives the model as stopped (a model another wake is starting is not woken again)
+            for (name, phase, next) in &mut again {
+                if now < *next {
+                    continue;
+                }
+                let until = std::time::Instant::now() + crate::routes::READ_BOUND;
+                let stopped = matches!(self.inner.policy.routes.readiness(name, until), Some(crate::routes::Readiness::NotCallable { phase: Some(p) }) if p == "stopped");
+                if !stopped {
+                    *next = now.saturating_add(WAKE_AGAIN_AFTER_MILLIS);
+                    continue;
+                }
+                match self.wake_route(run_id, name, true) {
+                    Woke::Failed => *next = self.st().now_millis().saturating_add(WAKE_AGAIN_AFTER_MILLIS),
+                    Woke::Ceiling => return ceiling(name, phase),
+                    Woke::Sent | Woke::Joined(_) => *next = i64::MAX,
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
@@ -2492,8 +2543,10 @@ impl Daemon {
     /// run event `runbook.route-wake`; a wake the rest of the day's cap does not cover is not sent and the event says
     /// "wake cap reached". The gateway's answer is the event `runbook.route-wake-answered`. [`Woke::Ceiling`] when the
     /// gateway answered `spend-ceiling`: the run stops; [`Woke::Joined`] names the run whose wake this run joined, whose
-    /// answer is this run's too.
-    fn wake_route(&self, run_id: &str, name: &str) -> Woke {
+    /// answer is this run's too. A wake the gateway did not take (not a 2xx) books nothing (`wakes_booked`);
+    /// [`Woke::Failed`] when it answered a 5xx other than `spend-ceiling` or nothing in time: the run's wait sends it
+    /// again (`again`: a try of the run's own after a failed one, which joins no wake).
+    fn wake_route(&self, run_id: &str, name: &str, again: bool) -> Woke {
         let routes = &self.inner.policy.routes;
         let Some(route) = routes.route(name) else { return Woke::Sent };
         let (Some(cap), Some(cost)) = (route.wake.daily_cap_micro_usd, route.wake.cost_micro_usd) else { return Woke::Sent };
@@ -2501,7 +2554,7 @@ impl Daemon {
         {
             let mut st = self.st();
             // a wake sent for the route within its wait is still starting the model: the run joins it and books nothing
-            if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis) {
+            if let Some((run, at)) = wake_sent_within(&st, name, st.now_millis(), wait_millis).filter(|_| !again) {
                 let record = json!({"route": name, "sent": false, "reason": WAKE_JOINED, "joined": run, "joined_at": at});
                 let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE, record);
                 return Woke::Joined(run);
@@ -2526,6 +2579,8 @@ impl Daemon {
         let _ = self.record_run_event(run_id, ROUTE_WAKE_ANSWERED, record);
         if answer.code.as_deref() == Some(crate::routes::SPEND_CEILING) {
             Woke::Ceiling
+        } else if answer.status.is_none_or(|s| s >= 500) {
+            Woke::Failed
         } else {
             Woke::Sent
         }
