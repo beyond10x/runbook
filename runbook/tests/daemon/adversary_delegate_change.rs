@@ -10,7 +10,7 @@ use super::PRINCIPAL;
 use serde_json::json;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// A stand-in `git` that holds a call of `verb` (`commit`, `push`) until `log/release-<verb>` exists (a forge that takes
 /// a moment), leaving `log/<verb>-held` when it starts and `log/<verb>-done` when the real call is over.
@@ -148,8 +148,8 @@ fn adversary_a_symbolic_link_that_leaves_the_tree_is_not_pushed() {
     assert!(end["handback_refused"].as_str().is_some_and(|w| w.contains("src/link")), "{end}");
 }
 
-/// The exit status of `runbook serve` on a file holding one repository entry with `remote`, or none when it is still
-/// running after 3 s (it started).
+/// The exit status of `runbook serve` on a file holding one repository entry with `remote`, or none when it started:
+/// it printed its listening line, which it prints after the file was read and accepted.
 fn serve_with_remote(tag: &str, remote: &str, extra: &str) -> (Option<i32>, String) {
     let dir = super::state::scratch(tag);
     let config = dir.join("runbook.toml");
@@ -166,24 +166,23 @@ fn serve_with_remote(tag: &str, remote: &str, extra: &str) -> (Option<i32>, Stri
         .env_remove("RUNBOOK_TOKEN")
         .env("RUNBOOK_CONFIG", &config)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let until = Instant::now() + Duration::from_secs(3);
-    loop {
-        if let Some(s) = child.try_wait().unwrap() {
-            let mut err = String::new();
-            let _ = std::io::Read::read_to_string(child.stderr.as_mut().unwrap(), &mut err);
-            return (s.code(), err);
-        }
-        if Instant::now() > until {
-            let _ = child.kill();
-            let _ = child.wait();
-            return (None, String::new());
-        }
-        std::thread::sleep(Duration::from_millis(20));
+    // the first line of its standard output, or nothing when it ended before it listened
+    let mut line = String::new();
+    let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(child.stdout.take().unwrap()), &mut line);
+    if line.starts_with("runbook: listening on ") {
+        let _ = child.kill();
+        let _ = child.wait();
+        return (None, String::new());
     }
+    let s = child.wait().unwrap();
+    let mut err = String::new();
+    let _ = std::io::Read::read_to_string(child.stderr.as_mut().unwrap(), &mut err);
+    assert!(line.is_empty(), "runbook serve printed {line:?} and did not listen: {err}");
+    (s.code(), err)
 }
 
 /// docs/daemon-api.md: "a remote with a user or password ... refuses the start, exit 2". `https://bot:pw@host/...` is

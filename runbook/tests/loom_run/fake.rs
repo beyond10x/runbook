@@ -5,12 +5,15 @@
 //! - `D/b10x-loom`            the script (its sha256 is `Fake::sha256`)
 //! - `D/calls/count`          the number of calls so far (a clock for tests: see `calls_so_far`)
 //! - `D/calls/<n>.argv`       one argument per line
-//! - `D/calls/<n>.env`        the environment, `env` output
+//! - `D/calls/<n>.env`        the environment, `env` output, written only for a fake whose test reads it
+//!   ([`Fake::record_env`]; [`Call::env`] refuses to answer for a fake that did not)
 //! - `D/script/<sub>.<k>.out|err|exit|sh`  the k-th answer to subcommand `<sub>` (`tree_run`,
 //!   `tree_approve`, `tree_open`, `tree_status`, `tree_verify`, `protocols_add`); `<sub>.default.*`
 //!   answers every call without an answer of its own; no answer at all: exit 99.
 //!   A `.sh` file is sourced first, in the runner's run directory as working directory (the hook
-//!   writes cost records into `work/.sdc/llm`, sleeps, and so on).
+//!   writes cost records into `work/.sdc/llm`, sleeps, and so on). `.out` and `.err` are sourced too:
+//!   each is one `printf` of the answer's text that [`Fake::answer`] and [`Fake::stderr`] write, with
+//!   `@STORE@` replaced by the `--store` of the call.
 
 use sha2::{Digest, Sha256};
 use std::os::unix::fs::PermissionsExt;
@@ -18,8 +21,9 @@ use std::path::{Path, PathBuf};
 
 /// The script forks as little as it can: it runs once per Loom call of every case of `runbook run`, so
 /// each command substitution or helper process here is paid hundreds of times per test run. Counters
-/// and answer files are read with `read`, the answer is picked into a variable, and only `env`, `sed`
-/// (an answer with stdout) and `cat` (an answer with stderr) start a process.
+/// and answer files are read with `read`, the answer is picked into a variable, an answer's stdout and
+/// stderr are `printf` lines it sources, and only `env` (for a fake that records the environment)
+/// starts a process: a call costs one shell, not one per answer part.
 const SCRIPT: &str = r#"#!/bin/sh
 D='@DIR@'
 [ -d "$D/seq" ] || mkdir -p "$D/calls" "$D/seq"
@@ -27,7 +31,7 @@ n=0; [ -f "$D/calls/count" ] && read -r n < "$D/calls/count"
 n=$((n + 1))
 echo "$n" > "$D/calls/count"
 printf '%s\n' "$@" > "$D/calls/$n.argv"
-env > "$D/calls/$n.env"
+if [ -f "$D/record-env" ]; then env > "$D/calls/$n.env"; fi
 sub="$1_$2"
 k=0; [ -f "$D/seq/$sub" ] && read -r k < "$D/seq/$sub"
 k=$((k + 1))
@@ -48,8 +52,8 @@ store=""; bindings=""; prev=""
 for a in "$@"; do [ "$prev" = --store ] && store=$a; [ "$prev" = --bindings ] && bindings=$a; prev=$a; done
 fake_pick sh; hook=$fake_picked
 [ -n "$hook" ] && . "$hook"
-fake_pick out; f=$fake_picked; [ -n "$f" ] && sed "s|@STORE@|$store|g" "$f"
-fake_pick err; f=$fake_picked; [ -n "$f" ] && cat "$f" >&2
+fake_pick out; f=$fake_picked; [ -n "$f" ] && . "$f"
+fake_pick err; f=$fake_picked; [ -n "$f" ] && . "$f" >&2
 fake_pick exit; f=$fake_picked
 if [ -n "$f" ]; then fake_code=""; read -r fake_code < "$f"; exit "$fake_code"; fi
 exit 0
@@ -58,7 +62,23 @@ exit 0
 /// One recorded call.
 pub struct Call {
     pub argv: Vec<String>,
-    pub env: Vec<(String, String)>,
+    env: Option<Vec<(String, String)>>,
+}
+
+impl Call {
+    /// The environment of the call. Panics for a fake without [`Fake::record_env`]: an empty list would let a check
+    /// that no variable holds a secret pass without having looked.
+    pub fn env(&self) -> &[(String, String)] {
+        self.env.as_deref().expect("the fake records no environment: call Fake::record_env before the run")
+    }
+}
+
+/// The text of `text` as one `printf` line that the fake sources: single-quoted, `@STORE@` replaced by the
+/// `--store` of the call. Nothing in it starts a process.
+fn printf_of(text: &str) -> String {
+    assert!(!text.contains('\0'), "a shell word holds no NUL byte");
+    let quoted = text.replace('\'', "'\\''").replace("@STORE@", "'\"$store\"'");
+    format!("printf '%s' '{quoted}'\n")
 }
 
 pub struct Fake {
@@ -87,7 +107,7 @@ impl Fake {
     pub fn answer(&self, sub: &str, k: &str, out: &str, exit: i32) -> &Fake {
         let base = self.dir.join("script").join(format!("{sub}.{k}"));
         if !out.is_empty() {
-            std::fs::write(base.with_extension_str("out"), out).unwrap();
+            std::fs::write(base.with_extension_str("out"), printf_of(out)).unwrap();
         }
         std::fs::write(base.with_extension_str("exit"), exit.to_string()).unwrap();
         self
@@ -95,7 +115,13 @@ impl Fake {
 
     /// stderr of an answer.
     pub fn stderr(&self, sub: &str, k: &str, text: &str) -> &Fake {
-        std::fs::write(self.dir.join("script").join(format!("{sub}.{k}.err")), text).unwrap();
+        std::fs::write(self.dir.join("script").join(format!("{sub}.{k}.err")), printf_of(text)).unwrap();
+        self
+    }
+
+    /// Write the environment of every later call to `calls/<n>.env`, for a test that reads [`Call::env`].
+    pub fn record_env(&self) -> &Fake {
+        std::fs::write(self.dir.join("record-env"), "").unwrap();
         self
     }
 
@@ -120,14 +146,17 @@ impl Fake {
     }
 
     pub fn calls(&self) -> Vec<Call> {
+        let recorded = self.dir.join("record-env").is_file();
         (1..=self.calls_so_far())
             .map(|n| {
                 let argv = std::fs::read_to_string(self.dir.join(format!("calls/{n}.argv"))).unwrap_or_default().lines().map(str::to_owned).collect();
-                let env = std::fs::read_to_string(self.dir.join(format!("calls/{n}.env")))
-                    .unwrap_or_default()
-                    .lines()
-                    .filter_map(|l| l.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned())))
-                    .collect();
+                let env = recorded.then(|| {
+                    std::fs::read_to_string(self.dir.join(format!("calls/{n}.env")))
+                        .unwrap_or_else(|e| panic!("call {n} of the fake recorded no environment: {e}"))
+                        .lines()
+                        .filter_map(|l| l.split_once('=').map(|(k, v)| (k.to_owned(), v.to_owned())))
+                        .collect()
+                });
                 Call { argv, env }
             })
             .collect()

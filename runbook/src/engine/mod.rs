@@ -441,7 +441,7 @@ impl Engine {
         let wall_cap = caps.max_wall_seconds;
         let watched = gate.meter.clone();
         let result = std::thread::scope(|scope| {
-            scope.spawn(|| {
+            let watcher = scope.spawn(|| {
                 while !done.load(Ordering::SeqCst) {
                     if cancel.load(Ordering::SeqCst) || lock(&slot.state).cancelled {
                         local.store(true, Ordering::SeqCst);
@@ -449,12 +449,14 @@ impl Engine {
                         wall_hit.store(true, Ordering::SeqCst);
                         local.store(true, Ordering::SeqCst);
                     }
-                    std::thread::sleep(POLL);
+                    // woken at once when the steps are done, so the run's end does not wait for the next look
+                    std::thread::park_timeout(POLL);
                 }
             });
             let asking = Asking { workspace: workspace.clone(), bindings: resolved.bindings.parent().map(Path::to_path_buf) };
             let result = self.steps(request, pinned, &store, &catalog, runner, sink, cancel, &local, &wall_hit, slot, &mut tail, &mut gate, &mut judge, &asking, &programs);
             done.store(true, Ordering::SeqCst);
+            watcher.thread().unpark();
             result
         });
         // The run's token is void and its route file gone before the last calls are recorded; a call still in flight

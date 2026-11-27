@@ -578,6 +578,7 @@ fn a_run_resolves_its_file_before_its_directory_exists_and_a_program_in_it_gets_
     // the environment the runner builds for the `b10x-loom` child (`child_env`): every call of the child is
     // told to read no file, whatever a program of the run wrote into the tree
     let w = super::core::World::new("cfgfile-child-env");
+    w.fake.record_env();
     w.one_decision_tree();
     w.scripted_approve();
     let o = w.run(&w.args("r1", 1_000_000));
@@ -585,7 +586,7 @@ fn a_run_resolves_its_file_before_its_directory_exists_and_a_program_in_it_gets_
     let calls = w.fake.calls();
     assert!(!calls.is_empty(), "the child was not called");
     for call in &calls {
-        assert!(call.env.iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a call of the child is not told to read no runbook.toml: {:?}", call.env.iter().map(|(k, _)| k).collect::<Vec<_>>());
+        assert!(call.env().iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a call of the child is not told to read no runbook.toml: {:?}", call.env().iter().map(|(k, _)| k).collect::<Vec<_>>());
     }
 }
 

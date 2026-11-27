@@ -642,7 +642,8 @@ fn a_bindings_file_naming_workspace_read_write_runs_and_another_value_is_refused
 #[test]
 fn a_check_killed_at_its_timeout_records_its_timeout_row_and_without_one_the_run_ends_stuck() {
     let anchor = "results: {\"0\": valid, timeout: invalid, \"*\": invalid}";
-    for (tag, table) in [("timeout-row", anchor), ("timeout-no-row", "results: {\"0\": valid, \"*\": invalid}")] {
+    // the two runs wait on their killed checks at once: the case takes the time of one
+    let case = |tag: &str, table: &str| {
         let rig = Rig::new(tag);
         let marker = rig.root.join("check-runs.txt");
         let file = rig.root.join("fx/bindings/engine-draft.yaml");
@@ -666,7 +667,12 @@ fn a_check_killed_at_its_timeout_records_its_timeout_row_and_without_one_the_run
             let refusals = refusals_named(&rig, "r1", "ResultNotInTable:");
             assert!(refusals.iter().any(|t| t.contains("killed at its timeout_seconds (1 s)") && t.contains("does not match a timeout")), "{tag}: Loom's text names the timeout: {refusals:?}");
         }
-    }
+    };
+    std::thread::scope(|s| {
+        let with_row = s.spawn(|| case("timeout-row", anchor));
+        case("timeout-no-row", "results: {\"0\": valid, \"*\": invalid}");
+        with_row.join().unwrap();
+    });
 }
 
 // ---- the program of a person's action: its environment, and who may take it ----
