@@ -2,11 +2,14 @@
 format: aep.planning-md/3
 id: story:the-race-specs-swap-without-mv-exchange
 kind: story
-status: draft
+status: active
 title: The two race specs swap a directory without mv --exchange and pass on a build node
 tags:
 - backlog
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T18:51:22Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T18:51:22Z", actor: "agent:runbook", revision: 3}
 ---
 ## Context
 

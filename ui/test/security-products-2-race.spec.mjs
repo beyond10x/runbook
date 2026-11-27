@@ -9,16 +9,17 @@
 // What the case proves, and how: the swap is made right before each call the reader makes to the file system, from both
 // states, and before every set of up to three such calls (interleave.mjs), so every window between two calls of the
 // reader is tried, the one between the first and the second computation of the real path among them; no answer serves
-// the store text. Where a loop of `mv --exchange` in a child process hit those windows by chance for 10 s, each is hit
-// here on purpose in every run. A short race with that child process follows, bounded by what it saw (each state served
-// or refused 100 times), not by a time.
+// the store text. Where a loop of exchanges in a child process hit those windows by chance for 10 s, each is hit here
+// on purpose in every run. A short race with that child process follows (exchange.mjs: renameat2 with RENAME_EXCHANGE,
+// no mv), bounded by what it saw (each state served or refused 100 times), not by a time. A host that cannot exchange
+// fails the case at its start, with one line.
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileAnswer} from '../products.mjs';
 import {places, before, sets} from './interleave.mjs';
 import {fixtureRoot, put} from './security-products-lib.mjs';
+import {exchangeTwice, raceExchange} from './exchange.mjs';
 
 const root = fixtureRoot('security-products-2-race');
 const STORE_TEXT = 'STORE-TEXT-OF-THE-RUN-RACE-77be';
@@ -32,6 +33,7 @@ test('finding 1 again: a directory of work/ swapped for a link to a directory of
   put(path.join(work, 'd', 'f.txt'), 'WORK-TEXT\n');
   put(path.join(run, 'store', 'x', 'f.txt'), `${STORE_TEXT}\n`);
   fs.symlinkSync(path.join(run, 'store', 'x'), path.join(work, 'lnk'));
+  exchangeTwice(work, 'd', 'lnk');
   const swap = () => { fs.renameSync(path.join(work, 'd'), path.join(work, 'tmp')); fs.renameSync(path.join(work, 'lnk'), path.join(work, 'd')); fs.renameSync(path.join(work, 'tmp'), path.join(work, 'lnk')); };
   const read = () => fileAnswer(run, 'work/d/f.txt');
   const by = {};
@@ -56,20 +58,7 @@ test('finding 1 again: a directory of work/ swapped for a link to a directory of
     if (start === 'link') swap();
   }
   expect(between, 'swaps between the first and the last computation of a real path were tried').toBeGreaterThan(0);
-  const swapper = spawn('sh', ['-c', 'while :; do mv --exchange -T d lnk; done'], {cwd: work, detached: true, stdio: 'ignore'});
-  const race = {};
-  let reads = 0, hit = null;
-  try {
-    while (!hit && ((race[200] || 0) < 100 || (race[403] || 0) + (race[404] || 0) < 100)) {
-      for (let i = 0; i < 200 && !hit; i++) {
-        reads++;
-        const r = read();
-        race[r.status] = (race[r.status] || 0) + 1;
-        if (r.status === 200 && r.body.text?.includes(STORE_TEXT)) hit = r;
-      }
-      await new Promise((ok) => setImmediate(ok));
-    }
-  } finally { try { process.kill(-swapper.pid); } catch { /* gone */ } }
-  console.log(`race 2: ${tried} interleavings by status ${JSON.stringify(by)}; ${reads} reads beside a swapping process by status ${JSON.stringify(race)}, text of store/ served: ${hit != null}`);
+  const {race, reads, hit, ms} = await raceExchange({dir: work, a: 'd', b: 'lnk', read, leaked: (r) => r.status === 200 && r.body.text?.includes(STORE_TEXT)});
+  console.log(`race 2: ${tried} interleavings by status ${JSON.stringify(by)}; ${reads} reads beside a swapping process by status ${JSON.stringify(race)} in ${ms} ms, text of store/ served: ${hit != null}`);
   expect(hit, `the text of store/x/f.txt was served as a file of work/ after ${reads} reads beside a swapping process`).toBeNull();
 });
