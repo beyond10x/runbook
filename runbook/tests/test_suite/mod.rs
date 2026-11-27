@@ -81,28 +81,9 @@ fn lines(o: &Output) -> Vec<String> {
     out(o).lines().map(str::to_owned).collect()
 }
 
-/// The command names of every process below this one, walked down through the `children` file of each thread
-/// (`/proc/<pid>/task/<tid>/children`): a sample reads the processes below this one, not every process of the host.
+/// The names of the programs below this process (`crate::process_sample`).
 fn descendants() -> Vec<String> {
-    let mut found = Vec::new();
-    let mut seen: BTreeSet<u32> = BTreeSet::from([std::process::id()]);
-    let mut todo = vec![std::process::id()];
-    while let Some(pid) = todo.pop() {
-        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { continue };
-        for task in tasks.flatten() {
-            let Ok(children) = std::fs::read_to_string(task.path().join("children")) else { continue };
-            for child in children.split_whitespace().filter_map(|c| c.parse::<u32>().ok()) {
-                if !seen.insert(child) {
-                    continue;
-                }
-                let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
-                let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
-                found.push(stat[open + 1..close].to_string());
-                todo.push(child);
-            }
-        }
-    }
-    found
+    crate::process_sample::programs_below(std::process::id())
 }
 
 #[test]
