@@ -5,6 +5,7 @@
 // adds. Invented texts; no model call; no request beyond 127.0.0.1.
 import {test, expect as plain} from '@playwright/test';
 import {pageDaemon, TOKEN} from './page-daemon.mjs';
+import {installPageTime, spendPageTime} from './page-time.mjs';
 
 const expect = plain.configure({timeout: 15000});
 const SUBMIT = '**/daemon/commands/submit-run';
@@ -173,6 +174,7 @@ test('the token is in no cookie, storage, URL, history state, DOM place or globa
 });
 
 test('a token typed while the form still reads, and the form closed before the second paint: the late paint puts nothing back', async ({page, context}) => {
+  await installPageTime(page);
   await enter(page);
   await form(page);
   await page.click('#st-close');
@@ -193,8 +195,8 @@ test('a token typed while the form still reads, and the form closed before the s
     const answered = page.waitForEvent('requestfinished', (r) => new URL(r.url()).pathname === '/daemon/views/runbooks');
     release();
     await answered;
-    // the page has the answer: two frames later its continuation and any paint it makes have run
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    // the page has the answer: 1 s of its time later its continuation, any paint it makes and any timer it sets have run
+    await spendPageTime(page, 1000);
     await expect(page.locator('#startdlg'), `${how}: the late paint opened the form`).toHaveJSProperty('open', false);
     expect(await places(page, context, TYPED), `after ${how} and the late paint`).toEqual([]);
   }

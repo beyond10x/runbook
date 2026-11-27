@@ -28,6 +28,8 @@ export const bothFiles = Object.keys(BOTH);
 // server, a refusal, a key or token rule or a text, none of which depends on the viewport. One line per file, the reason
 // in five words. A new spec file must be added to one of the three lists.
 export const WIDE_ONLY = {
+  'adversary-late-paint.spec.mjs': 'own daemon, start.js mutant',
+  'adversary-page-time.spec.mjs': 'mutant pages, own clock',
   'adversary-ui-wave.spec.mjs': 'model function, no page',
   'autopilot.spec.mjs': 'who decides, said as text',
   'budget.spec.mjs': 'file checks, no page',
@@ -128,6 +130,7 @@ export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 // claims do not depend on the viewport the project gives. budget.spec.mjs fails a wide-only file that names one and is
 // not listed, and a listed file that names none.
 export const SIZE_EXCEPTIONS = {
+  'adversary-page-time.spec.mjs': 'sets 1366 itself, like daemon-live',
   'autopilot.spec.mjs': 'sets both gating sizes itself',
   'daemon-decide.spec.mjs': 'phone test sets size',
   'daemon-live.spec.mjs': 'sets the gating sizes itself',
@@ -186,6 +189,7 @@ export const SPEC_FORM = new RegExp(`^${TEST_DIR.replace(/[.*+?^${}()|[\]\\]/g, 
 export const FIXED_WAITS = {
   '../ux/core/contract.mjs': {calls: 1, ms: 750, why: 'upper bound, ends on event'},
   '../ux/core/phone.mjs': {calls: 1, ms: 60, why: 'lets the scroll settle'},
+  'adversary-page-time.spec.mjs': {calls: 1, ms: 200},
   'autopilot.spec.mjs': {calls: 1, ms: 100},
   'child.spec.mjs': {calls: 2, ms: 1025},
   'daemon-decide-review.spec.mjs': {calls: 1, ms: 300},

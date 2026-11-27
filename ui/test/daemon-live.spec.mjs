@@ -1,8 +1,8 @@
 // The run page of `runbook serve --ui` while a run runs (story run-page-watches-a-live-run). One synthetic daemon
 // (daemon-live-fixture.mjs: the runbook `investigate`, six steps done, the seventh in flight) in this worker, and a
 // second that holds the last two events back, so a test moves the run while the page shows it. Before each page load the
-// fixture anchors its times to now (the step in flight started 132 s ago): a faked page clock would hide the Server-Timing
-// name the page reads to know the daemon served it. The browser runs in the zone Europe/Berlin with the locale en-US: the
+// fixture anchors its times to now (the step in flight started 132 s ago); the one case that moves the page's clock
+// (page-time.mjs) keeps the navigation entry whose Server-Timing name tells the page the daemon served it. The browser runs in the zone Europe/Berlin with the locale en-US: the
 // 24 h time and the zone's name must not depend on the locale. One case per finding of the before screenshots
 // (ui/ux/findings/UXF-027.md to UXF-036.md), then the loop's hard gates at the four gating viewports (ui/ux/adapter.mjs).
 import {test, expect as plain} from '@playwright/test';
@@ -367,7 +367,8 @@ test('the copy control says "Copied" in its words and its status line through a 
   await expect(copy).toHaveText('Copied');
   // the word goes back after 2 s of the page's time (web/app.js COPY_MS)
   await spendPageTime(page, 2000);
-  await expect(copy).toHaveText('Copy');
+  // it went back within those 2 s: the clock keeps pace with the host's again, so a longer wait would let a later word pass
+  await expect(copy).toHaveText('Copy', {timeout: 500});
   await expect(status).toHaveText('');
   await expect(copy).toHaveAttribute('title', `Copy the run id ${LIVE}`);
   await ctx.close();
