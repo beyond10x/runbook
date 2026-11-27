@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:any-route-kind-takes-a-daily-cap
 kind: story
-status: draft
+status: active
 title: Any route kind takes a daily spend or call cap, booked from the relay's cost
 summary: daily_cap_micro_usd and daily_max_llm_calls on a managed, hosted or local route; the relay refuses a call past the day's figure
 tags:
@@ -11,7 +11,10 @@ relations:
 - informed_by: story:daemon-caps-are-keys-of-one-file
 - informed_by: story:route-wake-behind-a-daily-cap
 - informed_by: story:a-managed-route-books-its-pods-measured-time
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T23:21:44Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T23:21:44Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
