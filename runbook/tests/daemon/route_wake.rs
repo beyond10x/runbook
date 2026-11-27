@@ -11,7 +11,7 @@
 //! sets. The daemon's refusal at start runs the `runbook serve` binary on a file of the case.
 
 use runbook::clock::SetClock;
-use runbook::commands::{AnswerDecision, Daemon, Policy, SubmitRun};
+use runbook::commands::{AnswerDecision, CancelRun, Daemon, Policy, SubmitRun};
 use runbook::routes::{RouteTable, Tables};
 use runbook::runtime::{Autonomy, Confinement};
 use runbook::stub::{Ask, Script, Step, StubRuntime};
@@ -31,6 +31,13 @@ const WAKE: &str = "POST /v1/models/qwen/wake";
 enum WakeSaid {
     Answer(u16, Value),
     Silent,
+    /// Answered with this status and body once the case lets it go (`Gateway::let_go`), at most 4 s after it came.
+    Held(u16, Value),
+}
+
+fn respond(stream: &mut std::net::TcpStream, code: u16, body: &Value) {
+    let body = body.to_string();
+    let _ = stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
 }
 
 /// What the stand-in answers: the phase of `qwen`, the answers to the next wakes in order and, once those are given,
@@ -39,6 +46,10 @@ struct Said {
     phase: &'static str,
     next: std::collections::VecDeque<WakeSaid>,
     wake: (u16, Value),
+    /// Whether a held wake may be answered.
+    let_go: bool,
+    /// How many held wakes were answered.
+    held_answered: usize,
 }
 
 struct Gateway {
@@ -56,7 +67,7 @@ impl Gateway {
     fn start_with(phase: &'static str, next: Vec<WakeSaid>, wake: (u16, Value)) -> Gateway {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
-        let said = Arc::new(Mutex::new(Said { phase, next: next.into(), wake }));
+        let said = Arc::new(Mutex::new(Said { phase, next: next.into(), wake, let_go: false, held_answered: 0 }));
         let heads = Arc::new(Mutex::new(Vec::new()));
         let (s, kept) = (said.clone(), heads.clone());
         std::thread::spawn(move || {
@@ -88,10 +99,7 @@ impl Gateway {
                     }
                 };
                 match said {
-                    WakeSaid::Answer(code, body) => {
-                        let body = body.to_string();
-                        let _ = stream.write_all(format!("HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes());
-                    }
+                    WakeSaid::Answer(code, body) => respond(&mut stream, code, &body),
                     // held open on a thread of its own, so the reads after it are answered
                     WakeSaid::Silent => {
                         std::thread::spawn(move || {
@@ -99,10 +107,31 @@ impl Gateway {
                             drop(stream);
                         });
                     }
+                    WakeSaid::Held(code, body) => {
+                        let s = s.clone();
+                        std::thread::spawn(move || {
+                            let limit = Instant::now() + Duration::from_secs(4);
+                            while !s.lock().unwrap().let_go && Instant::now() < limit {
+                                std::thread::sleep(Duration::from_millis(5));
+                            }
+                            respond(&mut stream, code, &body);
+                            s.lock().unwrap().held_answered += 1;
+                        });
+                    }
                 }
             }
         });
         Gateway { base_url, heads, said }
+    }
+
+    /// Lets the held wakes be answered and waits until `n` of them were.
+    fn let_go(&self, n: usize) {
+        self.said.lock().unwrap().let_go = true;
+        let limit = Instant::now() + Duration::from_secs(10);
+        while self.said.lock().unwrap().held_answered < n {
+            assert!(Instant::now() < limit, "the held wakes were not answered: {:?}", self.lines());
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     fn set_phase(&self, phase: &'static str) {
@@ -718,6 +747,87 @@ fn a_run_orphaned_at_a_restart_books_the_pod_time_up_to_the_orphan_mark() {
     let next = submit(&d, "qwen");
     let wake = until_records(&d, &next, "runbook.route-wake");
     assert_eq!((wake[0]["pod_micro_usd"].clone(), wake[0]["booked_micro_usd"].clone()), (json!(3_000_000), json!(3_500_000)), "{wake:?}");
+    gw.no_call();
+}
+
+/// Waits until the stand-in got `n` wakes.
+fn until_wakes(gw: &Gateway, n: usize) {
+    let limit = Instant::now() + Duration::from_secs(10);
+    while gw.wakes() < n {
+        assert!(Instant::now() < limit, "the stand-in got {} wakes, not {n}: {:?}", gw.wakes(), gw.lines());
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// The journal's lines `route.wake-answered` of the state directory `state`, once there is one or 2 s passed.
+fn wake_answer_lines(state: &Path) -> Vec<Value> {
+    let limit = Instant::now() + Duration::from_secs(2);
+    loop {
+        let lines: Vec<Value> = super::state::journal_facts(state).into_iter().filter(|f| f["fact"] == "route.wake-answered").collect();
+        if !lines.is_empty() || Instant::now() >= limit {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Story `a-wake-is-booked-only-when-it-succeeds`: a run is cancelled while its wake is out and the gateway then takes
+/// the wake (202). The pod starts, so the wake is booked: the closed run takes no event, and the answer is the daemon's
+/// journal line `route.wake-answered`. A run after the wake's wait sees it against the day's cap of 150 and sends none.
+#[test]
+fn a_wake_the_gateway_took_after_its_run_was_cancelled_is_booked_against_the_cap() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Held(202, json!({"model": "qwen", "phase": "starting"}))], (202, json!({})));
+    let dir = super::state::scratch("wake-taken-after-cancel");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(150, 100), clock.clone());
+    let first = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    assert_eq!(d.cancel_run(CancelRun { run_id: first.clone() }).unwrap().name, "cancelled");
+    until_state(&d, &first, "Cancelled");
+    gw.let_go(1);
+    let lines = wake_answer_lines(&dir.join("state"));
+
+    clock.set("2026-11-26T10:10:01Z");
+    let second = submit(&d, "qwen");
+    let wake = until_records(&d, &second, "runbook.route-wake");
+    let mut refused = sent(100, 150);
+    refused["sent"] = json!(false);
+    refused["reason"] = json!("wake cap reached");
+    assert_eq!(wake, vec![refused], "the wake the gateway took after its run was cancelled is not booked");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!((lines[0]["run_id"].clone(), lines[0]["record"].clone()), (json!(first), json!({"route": "qwen", "status": 202})));
+    assert!(records(&d, &first, "runbook.route-wake-answered").is_empty(), "the closed run took an event");
+    assert_eq!(gw.wakes(), 1);
+    gw.no_call();
+}
+
+/// Decision D11 of the unit's coordinator: the daemon is killed while a wake is out, so no answer is ever written. The
+/// restart closes the run (it never started) and the wake stays booked: the gateway may have taken it, and the cap
+/// counts more, never less. The kill is the journal as it was while the wake was out, read by a daemon on a new
+/// directory.
+#[test]
+fn a_wake_out_when_the_daemon_was_killed_stays_booked_after_the_restart() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Held(202, json!({"model": "qwen", "phase": "starting"}))], (202, json!({})));
+    let dir = super::state::scratch("wake-out-at-kill");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(1_000, 100), clock.clone());
+    let first = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    assert_eq!(until_records(&d, &first, "runbook.route-wake"), vec![sent(100, 1_000)]);
+    let journal = std::fs::read(dir.join("state/journal.jsonl")).unwrap();
+    gw.let_go(1);
+    d.stop();
+    drop(d);
+
+    let again = super::state::scratch("wake-out-at-kill-restart");
+    std::fs::create_dir_all(again.join("state")).unwrap();
+    std::fs::write(again.join("state/journal.jsonl"), journal).unwrap();
+    clock.set("2026-11-26T10:10:01Z");
+    let d = daemon_in(&again, &gw, wake_on(1_000, 100), clock.clone());
+    assert_eq!(detail(&d, &first)["state"], "FailedToStart");
+    let second = submit(&d, "qwen");
+    assert_eq!(until_records(&d, &second, "runbook.route-wake"), vec![sent(200, 1_000)], "the wake out at the kill is not booked");
+    assert_eq!(gw.wakes(), 2);
     gw.no_call();
 }
 
