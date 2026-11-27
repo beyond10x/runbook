@@ -21,7 +21,9 @@ and its status). These files are in `daemon/`, which this server does not serve.
 On a run, the daemon's page has none of the inspector's bands it has no data for (KPIs, Now, phases, the graph and its
 legend, the timeline). Its centre lists the run's steps read from the run's events (`web/runsteps.js`): step, role,
 state, start, duration and try, the step in flight marked with its duration counting, a line that says what runs now
-or how the run ended, and the counts (steps done, model calls, tokens, cost). A step ends at the run's
+or how the run ended, and the counts: the steps that are over, each in one count (`4 done, 2 exited non-zero, 1 ended
+with no exit`, the same words in the line of what runs now), model calls, tokens, cost. The root case card names the
+run by the last 8 characters of its id, the whole id on hover and by its control Copy ("Copy run id"). A step ends at the run's
 `runbook.step-ended`, not the run; a `Stopped` with `BudgetSpent`/`MaxSteps` none names is a wait or the end of the
 tree, and in a run with no `runbook.step-ended` (an older runtime) that `Stopped` line ends the step (`stepEnds`). A
 program whose `ActionFinished` holds a refusal and no exit (a signal, its timeout, no exit status, another refusal) is

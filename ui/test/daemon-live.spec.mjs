@@ -51,7 +51,8 @@ test('UXF-027: the centre shows the run\'s steps in order, the step in flight ma
   await expect(page.locator('#dnow')).toHaveText(/^Running step 7: findings\.judge, program, try 1, since \d{2}:\d{2}:\d{2} CES?T, for 2 min 1[2-9] s$/);
   const first = await running.locator('.ds-took').innerText();
   await expect(running.locator('.ds-took')).not.toHaveText(first);
-  await expect(page.locator('#dsteps .ds-counts')).toContainText('6 steps done');
+  // five steps ended with exit 0 and one with exit 10: two counts, no step in both
+  await expect(page.locator('#dsteps .ds-counts span').first()).toHaveText('5 done, 1 exited non-zero');
   await expect(page.locator('#dsteps .ds-counts')).toContainText('1 model call');
   await expect(page.locator('#dsteps .ds-counts')).toContainText('2,000 tokens');
   await expect(page.locator('#dsteps .ds-counts')).toContainText('$0.0042');
@@ -122,7 +123,8 @@ test('UXF-032: the case card cuts no text; the run line above it lines up with t
   await open(page);
   const cut = await page.locator('#left').evaluate((root) => [...root.querySelectorAll('*')].filter((e) => e.offsetParent && e.children.length === 0 && e.textContent.trim() && e.scrollWidth > e.clientWidth + 1).map((e) => e.textContent.trim()));
   expect(cut).toEqual([]);
-  await expect(page.locator('#tree .case .cid')).toHaveText(LIVE);
+  await expect(page.locator('#tree .case .cid')).toHaveText('0000a1b2');
+  await expect(page.locator('#tree .case .cid')).toHaveAttribute('title', LIVE);
   // where the run line's text starts, not its box: the padding is inside the box
   const pad = await page.evaluate(() => {
     const r = document.createRange();
@@ -131,6 +133,31 @@ test('UXF-032: the case card cuts no text; the run line above it lines up with t
   });
   expect(pad).toBeGreaterThanOrEqual(12);
 });
+
+// The root case card names the run by the last 8 characters of its id, as the run list does (web/source.js), on one
+// line; the whole id is its title and a copy control's, which writes it to the clipboard and is reached with Tab.
+for (const vp of viewports.gating.filter((v) => ['1366x768', '390x844'].includes(v.name))) {
+  test(`the case card at ${vp.name}: the run id short on one line, whole on hover and by a copy control reached with Tab`, async ({browser}) => {
+    const ctx = await browser.newContext({...ZONE, viewport: {width: vp.width, height: vp.height}, ...(vp.phone ? {isMobile: true, hasTouch: true} : {}), reducedMotion: 'reduce', permissions: ['clipboard-read', 'clipboard-write']});
+    const page = await ctx.newPage();
+    await open(page);
+    const cid = page.locator('#tree .case .cid');
+    await expect(cid).toHaveText('0000a1b2');
+    await expect(cid).toHaveAttribute('title', LIVE);
+    const lines = await cid.evaluate((e) => { const r = document.createRange(); r.selectNodeContents(e); return {lines: r.getClientRects().length, cut: e.scrollWidth > e.clientWidth + 1}; });
+    expect(lines).toEqual({lines: 1, cut: false});
+    const copy = page.locator('#tree .case').getByRole('button', {name: 'Copy run id'});
+    await expect(copy).toHaveAttribute('title', `Copy the run id ${LIVE}`);
+    let tabs = 0;
+    while (tabs < 40 && !(await copy.evaluate((e) => e === document.activeElement))) { await page.keyboard.press('Tab'); tabs++; }
+    expect(tabs, 'the copy control reached by Tab').toBeLessThan(40);
+    // focused, it is whole in view (a phone scrolls the page down to the tree)
+    await expect(copy).toBeInViewport({ratio: 1});
+    await page.keyboard.press('Enter');
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(LIVE);
+    await ctx.close();
+  });
+}
 
 test('UXF-033: no empty band between the header and the run; the files line sits with the steps', async ({page}) => {
   await open(page);

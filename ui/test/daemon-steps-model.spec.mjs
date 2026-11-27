@@ -130,7 +130,7 @@ test('what runs now, in words', () => {
   const live = runSteps(of(LIVE));
   expect(runSay(row(LIVE), live, RUNNING_SINCE + 132000, {clock: () => '19:53:17 CET'})).toBe('Running step 7: findings.judge, program, try 1, since 19:53:17 CET, for 2 min 12 s');
   const between = runSteps(of(LIVE).slice(0, -2));
-  expect(runSay(row(LIVE), between, RUNNING_SINCE)).toMatch(/^Between steps: 6 done, the last report\.write/);
+  expect(runSay(row(LIVE), between, RUNNING_SINCE)).toMatch(/^Between steps: 5 done, 1 exited non-zero, the last report\.write/);
   expect(runSay({...row(LIVE), state: 'WaitingOnDecision'}, between, RUNNING_SINCE)).toMatch(/^Waiting on a decision/);
   expect(runSay({...row(LIVE), state: 'Cancelled'}, between, RUNNING_SINCE)).toMatch(/^Cancelled/);
   expect(runSay({...row(LIVE), state: 'FailedToStart', failure: 'no route'}, between, RUNNING_SINCE)).toBe('Failed to start: no route');
@@ -175,9 +175,9 @@ test('a program ended with a refusal and no exit: the step is ended with its cau
     expect(table).toContain('data-state="ended"');
     expect(table).toContain(`<td class="ds-st">${word}</td>`);
     const head = renderStepsHead({state: 'Running'}, m, Date.parse(T(9)));
-    expect(head, 'an ended step is not a step done').toContain('<span>0 steps done</span>');
+    expect(head, 'an ended step is not a step done').not.toMatch(/\d+ done/);
     expect(head).toContain('<span>1 ended with no exit</span>');
-    expect(runSay({state: 'Running'}, m, Date.parse(T(9)))).toBe(`Between steps: 1 ended, the last note.write ${word}`);
+    expect(runSay({state: 'Running'}, m, Date.parse(T(9)))).toBe(`Between steps: 1 ended with no exit, the last note.write ${word}`);
     const w = eventWords(finished({refusal}, 4));
     expect(w.name).toBe('Step refused');
     expect(w.detail).toBe(`note.write · ${word}`);
@@ -190,6 +190,25 @@ test('a program ended with a refusal and no exit: the step is ended with its cau
   expect(runSteps([finished({refusal: 'timed out'}, 4)]).steps.map((s) => [s.action, s.state, s.cause])).toEqual([['note.write', 'ended', 'ended: timed out']]);
   // a step-budget stop after it leaves it ended
   expect(runSteps([program('note.write', 0), finished({refusal: 'timed out'}, 4), budgetStop(3, 5)]).steps[0].state).toBe('ended');
+});
+
+// The steps that are over, counted apart: an exit of 0 is done, any other exit is "exited non-zero", a refusal with no
+// exit "ended with no exit"; no step is in two counts. The head's counts and the words of what runs now say the same.
+test('the counts of the steps that are over: done, exited non-zero and ended with no exit, each step in one of them', () => {
+  const over = (ends) => ends.flatMap((end, i) => [program(`s${i}`, 2 * i), finished({action: `s${i}`, ...end}, 2 * i + 1)]);
+  const m = runSteps(over([{exit: 0}, {exit: 3}, {exit: 0}, {refusal: 'timed out'}, {exit: 0}, {exit: 10}, {exit: 0}]));
+  expect(m.steps.map((s) => s.state)).toEqual(['done', 'exit', 'done', 'ended', 'done', 'exit', 'done']);
+  const now = Date.parse(T(30));
+  const head = renderStepsHead({state: 'Running'}, m, now);
+  expect(head).toContain('<span>4 done, 2 exited non-zero, 1 ended with no exit</span>');
+  expect(runSay({state: 'Running'}, m, now)).toBe('Between steps: 4 done, 2 exited non-zero, 1 ended with no exit, the last s6 done');
+  expect(runSay({state: 'Cancelled'}, m, now)).toBe('Cancelled: 4 done, 2 exited non-zero, 1 ended with no exit, the last s6 done');
+  // one of each: the singular
+  const one = runSteps(over([{exit: 0}, {exit: 2}]));
+  expect(renderStepsHead({state: 'Running'}, one, now)).toContain('<span>1 done, 1 exited non-zero</span>');
+  expect(runSay({state: 'Running'}, one, now)).toBe('Between steps: 1 done, 1 exited non-zero, the last s1 ended with exit 2');
+  // no step over yet: nothing done, said as a count
+  expect(renderStepsHead({state: 'Running'}, runSteps([program('s0', 0)]), now)).toContain('<span>0 done</span>');
 });
 
 // A handoff check (role `check`, runbook/src/engine/announce.rs `describe`) ends at Loom's `HandoffChecked` with its own
@@ -250,7 +269,7 @@ test('a run of 5000 steps: the step table, the feed and the Events tab each draw
   expect(table).toMatch(/4,?800 earlier steps left out/);
   expect(table).toContain('data-key="st:5000"');
   expect(table).not.toContain('data-key="st:4800"');
-  expect(renderStepsHead({state: 'Running'}, m, now), 'the counts are of every step').toMatch(/<span>5,?000 steps done<\/span>/);
+  expect(renderStepsHead({state: 'Running'}, m, now), 'the counts are of every step').toMatch(/<span>5,?000 done<\/span>/);
   // the step in flight is always drawn, also when it started before every step in the window
   const old = longRun(5000, {firstRuns: true});
   const mo = runSteps(old.ev);

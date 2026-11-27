@@ -452,11 +452,16 @@ function renderTree(cases, st, now) {
     const e = evalAt(x, null);
     const claims = Object.values(e?.claims || {});
     const t = claims.filter((v) => v.value === 'true').length;
-    // a case of the daemon's tree is labelled by its link name (the root by its id)
+    // a case of the daemon's tree is labelled by its link name; the root, whose id is the run's, by the last 8
+    // characters of it (as the run list names a run, web/source.js), the whole id on hover and by a copy control
     const name = x.name ?? (x.parent ? x.id.slice(x.parent.length + 1) : x.id);
+    const runRoot = x.daemon && !x.parent && x.name == null;
+    const label = runRoot
+      ? `<span class="cid cid-run" title="${esc(x.id)}">${esc(x.id.slice(-8))}</span><button type="button" class="ib cid-copy" data-copy="${esc(x.id)}" aria-label="Copy run id" title="${esc(`Copy the run id ${x.id}`)}">Copy</button>`
+      : `<span class="cid">${esc(name)}</span>`;
     const guides = Array.from({length: x.depth}, (_, i) => `<span class="guide" style="left:${16 + i * 16}px"></span>`).join('');
     return `<div data-key="c:${esc(x.rel)}" class="case${x.rel === S.sel ? ' sel' : ''}" data-case="${esc(x.rel)}" style="padding-left:${16 + x.depth * 16}px">${guides}
-      <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
+      <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span>${label}${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
       <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span>${x.daemon ? '' : claimsRecorded(x) ? `<span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span>` : `<span class="cnt nr-cnt" title="${CLAIMS_NOT_RECORDED}">claims not recorded</span>`}</div></div>`;
   }).join('');
 }
@@ -597,6 +602,13 @@ document.addEventListener('click', async (ev) => {
     if (id === 'zin') { S.fit = false; S.zoom = Math.min(2, S.zoom * 1.2); return render(); }
     if (id === 'zout') { S.fit = false; S.zoom = Math.max(0.3, S.zoom / 1.2); return render(); }
     if (id === 'zfit') { S.fit = true; return render(); }
+  }
+  // the copy control of the root case card: the whole run id to the clipboard; the card is not selected by it
+  const copy = t.closest('[data-copy]');
+  if (copy) {
+    ev.preventDefault();
+    try { await navigator.clipboard.writeText(copy.dataset.copy); copy.classList.add('on'); } catch { copy.title = `The browser did not allow the copy of the run id ${copy.dataset.copy}`; }
+    return;
   }
   if (t.closest('#decbtn') || t.closest('[data-open-drawer]')) { S.drawer = !S.drawer || !!t.closest('[data-open-drawer]'); return render(); }
   if (t.closest('#rpclose')) { setPanel(false); return render(); }

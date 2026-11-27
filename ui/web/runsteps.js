@@ -233,19 +233,23 @@ const STATE_SAY = {Submitted: 'Submitted: not started yet', WaitingOnDecision: '
 // A step that is over in words: `done`, `ended with exit 3`, the cause of a refusal (`ended by a signal`), or what a
 // check's exit does (`checked: the writer goes on`).
 const overWords = (s) => (s.state === 'exit' ? `ended with exit ${s.exit}` : s.state === 'ended' ? s.cause ?? 'ended' : s.role === 'check' && s.exit != null ? `checked: ${checkWords(s.exit)}` : 'done');
+// The steps that are over in one count each, the same words in the head's counts and in what runs now: `4 done, 2
+// exited non-zero, 1 ended with no exit` (done: exit 0 or a check's own exit; exited non-zero: any other exit; ended
+// with no exit: a refusal). A count of 0 is left out; with no step over, `0 done`.
+function overTally(steps) {
+  let done = 0, exits = 0, cut = 0;
+  for (const s of steps) { if (s.state === 'done') done++; else if (s.state === 'exit') exits++; else if (s.state === 'ended') cut++; }
+  return [done && `${done} done`, exits && `${exits} exited non-zero`, cut && `${cut} ended with no exit`].filter(Boolean).join(', ') || '0 done';
+}
 export function runSayParts(run, m, now, {clock = (t) => clockTime(t, now)} = {}) {
   const state = run?.state;
   const done = m.steps.filter((s) => s.state !== 'running');
   const last = done[done.length - 1];
   const lastWords = last ? `, the last ${last.action} ${overWords(last)}` : '';
-  // the steps that are over: done (an exit of their own) apart from ended (a refusal and no exit)
-  const cut = done.filter((s) => s.state === 'ended').length;
-  const own = done.length - cut;
-  const tally = (steps) => [own > 0 && `${own}${steps ? ` ${own === 1 ? 'step' : 'steps'}` : ''} done`, cut > 0 && `${cut} ended`].filter(Boolean).join(', ');
   if (state === 'Running' || (state === 'Submitted' && m.steps.length)) {
     const s = m.inFlight;
     if (s) return {head: `Running step ${s.n}: ${join(s.action, s.role, s.try != null && `try ${s.try}`).replaceAll(' · ', ', ')}${s.at != null ? `, since ${clock(s.at)}` : ''}`, since: s.at, running: true};
-    if (done.length) return {head: `Between steps: ${tally(false)}${lastWords}`, since: null};
+    if (done.length) return {head: `Between steps: ${overTally(done)}${lastWords}`, since: null};
     return {head: 'Running: no step started yet', since: null};
   }
   if (state === 'Ended') {
@@ -256,7 +260,7 @@ export function runSayParts(run, m, now, {clock = (t) => clockTime(t, now)} = {}
   if (state === 'FailedToStart') return {head: `Failed to start: ${run.failure ?? 'no reason named'}`, since: null};
   if (state === 'WaitingOnKey') return {head: `Waiting for its serial key${str(run.serial_key) ? ` ${run.serial_key}` : ''}: nothing of it starts before the runs ahead of it end`, since: null};
   if (state === 'WaitingForRoute') return {head: `Waiting for the model route${run.route_phase ? ` (${run.route_phase})` : ''}`, since: null};
-  return {head: `${STATE_SAY[state] ?? state ?? 'State not read'}${done.length ? `: ${tally(true)}${lastWords}` : ''}`, since: null};
+  return {head: `${STATE_SAY[state] ?? state ?? 'State not read'}${done.length ? `: ${overTally(done)}${lastWords}` : ''}`, since: null};
 }
 export function runSay(run, m, now, opts) {
   const p = runSayParts(run, m, now, opts);
@@ -273,9 +277,7 @@ const costWords = (x) => (x.costKnown !== false ? usd(x.micro) : x.micro ? `${us
 
 // The counts the run's events hold (and the view's row, withViewCalls).
 function counts(m) {
-  let done = 0, exits = 0, cut = 0;
-  for (const s of m.steps) { if (s.state === 'done' || s.state === 'exit') done++; if (s.state === 'exit') exits++; if (s.state === 'ended') cut++; }
-  return [`${done} ${done === 1 ? 'step' : 'steps'} done`, exits && `${exits} ended with an exit other than 0`, cut && `${cut} ended with no exit`,
+  return [overTally(m.steps),
     `${m.calls} model ${m.calls === 1 ? 'call' : 'calls'}`, m.calls && tokenWords(m), m.calls && costWords(m)].filter(Boolean);
 }
 
@@ -321,9 +323,11 @@ const STATE_WORD = {Submitted: 'Submitted', Running: 'Running', WaitingOnDecisio
 export const runStateWord = (run) => STATE_WORD[run?.state] ?? run?.state ?? '';
 export function renderStepsBar(run, m, now) {
   const s = m.inFlight && run?.state === 'Running' ? m.inFlight : null;
-  const step = s ? `${esc(s.action)}${s.at != null ? ` · <span data-took-since="${s.at}">${esc(fmtTook(now - s.at, true))}</span>` : ''}` : esc(runSayParts(run, m, now).head.replace(/^[^:]*: ?/, '') || runStateWord(run));
+  // the words of a run between steps or over are cut on a narrow bar: whole on hover
+  const words = s ? null : runSayParts(run, m, now).head.replace(/^[^:]*: ?/, '') || runStateWord(run);
+  const step = s ? `${esc(s.action)}${s.at != null ? ` · <span data-took-since="${s.at}">${esc(fmtTook(now - s.at, true))}</span>` : ''}` : esc(words);
   const cls = {running: 'm-running', ended: 'm-closed', bad: 'm-stuck', waiting: 'm-waiting', between: 'm-between'}[stateCls(run, m)];
-  return `<span class="nb-state ${cls}" data-key="nbs"><i></i>${esc(runStateWord(run))}</span><span class="nb-step" data-key="nbp">${step}</span>`;
+  return `<span class="nb-state ${cls}" data-key="nbs"><i></i>${esc(runStateWord(run))}</span><span class="nb-step" data-key="nbp"${words ? ` title="${esc(words)}"` : ''}>${step}</span>`;
 }
 
 // One event of a run as a row: its name and what it says in words, its place in the run with the kind the runtime
