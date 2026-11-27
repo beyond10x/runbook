@@ -67,6 +67,24 @@ shape_lines() {
     if (.actions | type) != "array" then "\($f): not a bindings file, it is no mapping with an actions list"
     else .actions[] | loop_badaction($f) end'
 }
+# The route entries of a runbook (docs/daemon-api.md, "The catalog"): the daemon reads bindings/<id>.routes.yaml,
+# format runbook.routes/1, beside the bindings of runbook <id> at each submit of it (runbook/src/admission.rs). It is
+# Runbook's own file and no Loom bindings file: route_entries tells it by its name, and no step reads it as bindings.
+# A file of that name that the daemon would not read as route entries (a link, which it does not follow; text that is
+# no YAML; another format or none) is refused by the exits step by the line of route_refusal. The entries themselves
+# are checked by `runbook check` and by the daemon at each submit.
+route_entries() { [[ ${1##*/} == ?*.routes.yaml ]]; }
+route_refusal() {
+  local f=$1 id doc why=
+  id=${f##*/}
+  id=${id%.routes.yaml}
+  if [[ -L $f ]]; then why="it is a link, which the daemon does not follow"
+  elif ! doc=$(yq -o=json -I=0 '.' "$f" 2> /dev/null); then why="it is not YAML"
+  elif [[ $(printf '%s\n' "$doc" | jq -rs 'if (.[0] | type) == "object" then (.[0].format // "" | tostring) else "" end') != runbook.routes/1 ]]; then
+    why="its format is not runbook.routes/1"
+  fi
+  if [[ -n $why ]]; then echo "bindings/${f##*/}: a file of this name holds the route entries of runbook $id, and $why"; fi
+}
 check_exits() {
 # The exits of every program binding (docs/loom-bindings.md, "The exit lists"): `exits.error` is
 # [75, 126, 127], and [69, 70, 75, 126, 127] for the five bindings the checker names as waiting for
@@ -84,8 +102,15 @@ check_exits() {
 # [69, 70, 75, 126, 127], one without it [75, 126, 127] or [69, 70, 75, 126, 127] (the tool exits 69
 # and 70 for SDC_POOL_WAIT too).
 binding_files=()
+route_findings=""
 for f in "$sdc"/bindings/*.yaml; do
-  if [[ -e $f || -L $f ]]; then binding_files+=("$f"); fi
+  if [[ ! -e $f && ! -L $f ]]; then continue; fi
+  if route_entries "$f"; then
+    why=$(route_refusal "$f")
+    if [[ -n $why ]]; then route_findings+=$why$'\n'; fi
+  else
+    binding_files+=("$f")
+  fi
 done
 if [[ ${#binding_files[@]} -eq 0 ]]; then
   exit_findings="$sdc: no bindings/*.yaml"
@@ -147,6 +172,8 @@ exit_findings=$(cd -- "$sdc" && {
       end)
     end)')
 fi
+exit_findings=$route_findings$exit_findings
+exit_findings=${exit_findings%$'\n'}
 if [[ -n $exit_findings ]]; then
   echo "FAIL exits"; echo "$exit_findings" | sed 's/^/  /'; fail=1
 else
@@ -218,6 +245,7 @@ budget_refused=""
 budget_unreadable=""
 while IFS= read -r f; do
   [[ -e $sdc/$f ]] || continue
+  if route_entries "$f"; then continue; fi
   if ! (cd "$sdc" && yq -o=json -I=0 'tag' "$f" > /dev/null); then budget_unreadable="a file this step reads could not be read (the message of yq is above)"$'\n'; continue; fi
   why=$(cd "$sdc" && refused_document "$f")
   if [[ -n $why ]]; then budget_refused+="$f: $why"$'\n'; else budget_files+=("$f"); fi
@@ -437,7 +465,7 @@ check_budget
 reg_unreadable=0
 reg_files=()
 for f in "$sdc"/bindings/*.yaml; do
-  if [[ -e $f ]]; then reg_files+=("bindings/${f##*/}"); fi
+  if [[ -e $f ]] && ! route_entries "$f"; then reg_files+=("bindings/${f##*/}"); fi
 done
 reg_protocols=$(cd -- "$sdc" && yq -o=json -I=0 '{"f": filename, "id": .protocol.id, "rev": .protocol.revision}' protocol/*.protocol.yaml) || reg_unreadable=1
 reg_bindings=
@@ -481,7 +509,10 @@ if [[ -f $ans ]]; then
   ans_findings=""
   ans_json=$(yq -o=json '.' "$ans")
   [[ $(jq -r .format <<< "$ans_json") == runbook.loom-run-answers/1 ]] || ans_findings+=$'\n'"format is not runbook.loom-run-answers/1"
-  bound=$(cd "$sdc" && yq -o=json -I=0 '.actions[] | {"action": .action, "kind": .executor.kind, "handoff": (.handoff != null)}' bindings/*.yaml | jq -s .)
+  bound='[]'
+  if [[ ${#reg_files[@]} -gt 0 ]]; then
+    bound=$(cd "$sdc" && yq -o=json -I=0 '.actions[] | {"action": .action, "kind": .executor.kind, "handoff": (.handoff != null)}' "${reg_files[@]}" | jq -s .)
+  fi
   while IFS=$'\t' read -r a on; do
     case $on in
       ApproveAction) q='[.[] | select(.action == $a and .kind == "person")] | length' ;;

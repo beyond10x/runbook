@@ -462,3 +462,69 @@ fn this_repository_reports_a_pool_binding_without_pool_wait() {
         "{out}\n{err}"
     );
 }
+
+/// The route entries of a runbook, `bindings/<id>.routes.yaml` (`runbook.routes/1`, `docs/daemon-api.md`, "The
+/// catalog"): Runbook's own file beside the bindings, not a Loom bindings file.
+const ROUTES: &str = "format: runbook.routes/1\nmodel_routes:\n  default: {route: fast}\n  review: {needs: {wire: messages}}\nroutes_allowed: [fast]\n";
+
+fn run_step(step: &str, root: &PathBuf) -> (Option<i32>, String, String) {
+    let o = Command::new("bash").arg(script()).arg(step).arg(root).output().unwrap();
+    (o.status.code(), String::from_utf8_lossy(&o.stdout).into_owned(), String::from_utf8_lossy(&o.stderr).into_owned())
+}
+
+/// A runbook of another repository with its route entries beside its bindings: the exits step and the budget step pass.
+#[test]
+fn a_route_file_beside_the_bindings_is_left_out_and_the_exits_and_budget_steps_pass() {
+    let root = root_in("route-file-passes");
+    fs::write(root.join("bindings/example.yaml"), GOOD).unwrap();
+    fs::write(root.join("bindings/example.routes.yaml"), ROUTES).unwrap();
+    for (step, pass) in [("--exits", "pass exits\n"), ("--budget", "pass budget\n")] {
+        let (code, out, err) = run_step(step, &root);
+        assert_eq!((code, out.as_str()), (Some(0), pass), "{step}: {err}");
+        assert!(!err.contains("routes"), "{step}: {err}");
+    }
+}
+
+/// A file named as the route entries of a runbook that the daemon would not read as them is refused by the exits step,
+/// one line naming it; the bindings file beside it is checked as before.
+#[test]
+fn a_file_named_as_route_entries_that_is_not_one_is_refused_by_one_line_naming_it() {
+    let lead = "bindings/example.routes.yaml: a file of this name holds the route entries of runbook example";
+    let cases: [(&str, &str, String); 5] = [
+        ("route-file-other-format", "format: loom.bindings/1\nactions: []\n", format!("{lead}, and its format is not runbook.routes/1")),
+        ("route-file-no-format", "model_routes:\n  default: {route: fast}\n", format!("{lead}, and its format is not runbook.routes/1")),
+        ("route-file-empty", "", format!("{lead}, and its format is not runbook.routes/1")),
+        ("route-file-list", "- format: runbook.routes/1\n", format!("{lead}, and its format is not runbook.routes/1")),
+        ("route-file-no-yaml", "format: [runbook\n  routes {{\n", format!("{lead}, and it is not YAML")),
+    ];
+    for (name, text, line) in cases {
+        let root = root_in(name);
+        fs::write(root.join("bindings/example.yaml"), GOOD).unwrap();
+        fs::write(root.join("bindings/example.routes.yaml"), text).unwrap();
+        let (code, out, err) = run_step("--exits", &root);
+        assert_eq!((code, out.as_str()), (Some(1), format!("FAIL exits\n  {line}\n").as_str()), "{name}: {err}");
+    }
+    for (name, target) in [("route-file-link", "real.txt"), ("route-file-dangling", "nowhere")] {
+        let root = root_in(name);
+        fs::write(root.join("bindings/example.yaml"), GOOD).unwrap();
+        fs::write(root.join("bindings/real.txt"), ROUTES).unwrap();
+        std::os::unix::fs::symlink(target, root.join("bindings/example.routes.yaml")).unwrap();
+        let (code, out, err) = run_step("--exits", &root);
+        let want = format!("FAIL exits\n  {lead}, and it is a link, which the daemon does not follow\n");
+        assert_eq!((code, out.as_str()), (Some(1), want.as_str()), "{name}: {err}");
+    }
+}
+
+/// The full check of this repository's tree with a route file beside a protocol's bindings: the registrations step
+/// reads no protocol for it, and every step passes.
+#[test]
+fn the_full_check_leaves_a_route_file_out_of_the_registrations() {
+    let root = full_check_tree("full-route-file");
+    fs::write(root.join("bindings/sdc-story.routes.yaml"), ROUTES).unwrap();
+    let (code, out, err) = full_check(&root);
+    assert_eq!(code, Some(0), "{out}\n{err}");
+    for line in ["pass exits", "pass budget", "pass registrations"] {
+        assert!(out.contains(line), "{line}: {out}\n{err}");
+    }
+    assert!(!out.contains("routes.yaml"), "{out}\n{err}");
+}
