@@ -83,9 +83,13 @@ stand-ins counted 2000 sleeps of 10 ms (22 s idle), and on one CPU under load a 
 passed in 33 s, past the delegate's wait of 30 s; they wait 10 s by bash's clock, and that server is red in 11 s.
 
 The helpers that look for the processes below a test walk `/proc/<pid>/task/<tid>/children`: a scan of every process
-of a host with thousands of them cost the tests that poll every 10 ms more CPU than their runs. The `runbook` crate
-builds at `opt-level = 1` like its dependencies: a run of all tests on 2 CPUs here took 161.5 s of CPU before and
-144.6 s with it and the first of the changes.
+of a host with thousands of them cost the tests that poll every 10 ms more CPU than their runs. They are one helper,
+`runbook/tests/process_sample/mod.rs`, and it judges a child by the program it runs after its `exec`: a child that runs
+its parent's executable with its parent's arguments has not called `exec` yet and is left to the next sample. Before,
+the name such a child carries from the thread that forked it (`runbook`, `run-<id>`) failed the two cases that refuse
+an unexpected program 3 and 1 times in 50 runs each. The `runbook` crate builds at `opt-level = 1` like its
+dependencies: a run of all tests on 2 CPUs here took 161.5 s of CPU before and 144.6 s with it and the first of the
+changes.
 
 What stays: about 1450 calls of the pinned Loom's `run_tree` with a cancel flag each return up to 100 ms after their
 run ended (its watcher sleeps in steps of 100 ms), about 72 s of the summed time, about 18 s of the forge's step.

@@ -50,16 +50,16 @@ fn listing(dir: &Path) -> BTreeSet<String> {
     out
 }
 
-/// The command names of every process below this one.
+/// The names of the programs below this process (`crate::process_sample`).
 fn descendants() -> Vec<String> {
-    descendant_processes().into_iter().map(|(_, c)| c).collect()
+    crate::process_sample::programs_below(std::process::id())
 }
 
 /// Ends every `sleep` below this process: a step whose program pauses (`pause.txt`) goes on at once, when the case has seen
 /// what it waited for, instead of after the pause. Whether it ended one: a case that waits to see the pause reads it
 /// here, from the scan that ends it, so no pause is ended without being seen.
 fn end_the_pauses() -> bool {
-    let pauses: Vec<u32> = descendant_processes().into_iter().filter(|(_, c)| c == "sleep").map(|(pid, _)| pid).collect();
+    let pauses: Vec<u32> = descendant_processes().into_iter().filter(|(_, c)| c.as_deref() == Some("sleep")).map(|(pid, _)| pid).collect();
     for pid in &pauses {
         // SAFETY: a plain signal to a process id this case just read below its own process.
         unsafe { libc::kill(*pid as i32, libc::SIGTERM) };
@@ -74,7 +74,7 @@ fn end_the_pauses() -> bool {
 pub(super) fn end_pauses_together(count: usize) {
     let mut pauses = Vec::new();
     until(&format!("{count} pauses at the same time"), 40, || {
-        pauses = descendant_processes().into_iter().filter(|(pid, c)| c == "sleep" && alive(*pid)).map(|(pid, _)| pid).collect();
+        pauses = descendant_processes().into_iter().filter(|(pid, c)| c.as_deref() == Some("sleep") && alive(*pid)).map(|(pid, _)| pid).collect();
         pauses.len() >= count
     });
     for pid in &pauses {
@@ -90,30 +90,11 @@ fn alive(pid: u32) -> bool {
     stat.rfind(')').and_then(|close| stat[close + 1..].split_whitespace().next()).is_some_and(|state| state != "Z" && state != "X")
 }
 
-/// The process id and the command name of every process below this one.
-/// Walks down from this process through the `children` file of each of its threads (`/proc/<pid>/task/<tid>/children`),
-/// so a scan reads the processes below this one and not every process of the host: the cases that wait on a pause scan
-/// every 10 ms, and a scan of all of `/proc` cost them more CPU than their runs on a host with thousands of processes.
-fn descendant_processes() -> Vec<(u32, String)> {
-    let mut found: Vec<(u32, String)> = Vec::new();
-    let mut seen: BTreeSet<u32> = BTreeSet::from([std::process::id()]);
-    let mut todo = vec![std::process::id()];
-    while let Some(pid) = todo.pop() {
-        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { continue };
-        for task in tasks.flatten() {
-            let Ok(children) = std::fs::read_to_string(task.path().join("children")) else { continue };
-            for child in children.split_whitespace().filter_map(|c| c.parse::<u32>().ok()) {
-                if !seen.insert(child) {
-                    continue;
-                }
-                let Ok(stat) = std::fs::read_to_string(format!("/proc/{child}/stat")) else { continue };
-                let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
-                found.push((child, stat[open + 1..close].to_string()));
-                todo.push(child);
-            }
-        }
-    }
-    found
+/// The process id of every process below this one and the name of the program it runs, `None` for a process that has not
+/// called `exec` yet (`crate::process_sample::below`): a scan reads the processes below this one and not every process
+/// of the host; the cases that wait on a pause scan every 10 ms.
+fn descendant_processes() -> Vec<(u32, Option<String>)> {
+    crate::process_sample::below(std::process::id())
 }
 
 pub(super) fn until(what: &str, secs: u64, mut done: impl FnMut() -> bool) {
