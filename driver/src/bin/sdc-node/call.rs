@@ -313,6 +313,12 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         operations.clear();
         max_turns = NumLit("3".into());
     }
+    // The daemon's bound: no more turns than the run has model calls left. It only lowers the bound.
+    if let Some(left) = c.set.calls_left {
+        if max_turns.0.parse::<f64>().map_or(true, |t| t > left as f64) {
+            max_turns = NumLit(left.to_string());
+        }
+    }
     // A money budget is the binding's alone: with none named the request carries none.
     let max_budget = c.set.cfg.max_budget_usd.clone();
     let case_dir = std::env::var("SDC_CASE_DIR").unwrap_or_default();

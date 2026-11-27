@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:the-free-runs-turns-follow-the-runs-call-cap
 kind: story
-status: draft
+status: active
 title: The free run's agent node gets no more turns than its run has calls left
 summary: The agent node of a free run or a generated protocol takes the smaller of its --max-turns and the run's calls left
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:daemon-takes-a-delegation
 - informed_by: story:delegation-classifies-or-builds-a-protocol
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T18:50:51Z", actor: "agent:runbook", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-27T18:50:51Z", actor: "agent:runbook", revision: 4}
 ---
 ## Outcome
 
@@ -70,3 +73,24 @@ With the daemon in process, a stand-in model program on the run's route file and
 
 - Informed by `story:daemon-takes-a-delegation` (the free run) and `story:delegation-classifies-or-builds-a-protocol`
   (generated protocols take the free run's executor).
+
+## The way and a cap of 0 or 1
+
+- The way taken (2026-11-27): neither (a) nor (b) as written. The runner that starts every program of a daemon run and
+  reserves its budget (`runbook/src/engine/gate.rs`) gives the agent node of a delegation (`sdc-node delegation.free`
+  or `sdc-node delegation.change`, so every action of a generated protocol too) the variable `RUNBOOK_CALLS_LEFT` as
+  it starts: the run's call cap (the delegation's `max_llm_calls`, else the daemon's `--max-llm-calls`) minus the
+  calls the run has used, at least 1. `sdc-node` takes the smaller of its `--max-turns` and that number, and its
+  `request.json` names the bound it got. The daemon sets the variable and the program can only lower its bound with
+  it; nothing a request or a model writes reaches it. The route file of (b) is written once when the run takes its
+  route, and the calls left change with every call.
+- Without the variable (no daemon run, no cap) the node keeps the binding's `--max-turns`, 40 for the free run.
+- A cap of 0 is refused before a run exists, as today: `runbook serve --max-llm-calls 0` does not start (the option
+  takes 1 or more), and a delegation whose `settings.max_llm_calls` is `"0"` is refused at submit as a value that is
+  not a whole number of 1 or more (`CapPolicy::resolve`, `runbook/src/caps.rs`). `sdc-node` refuses a
+  `RUNBOOK_CALLS_LEFT` that is not a whole number of at least 1, as it refuses such a `--max-turns`.
+- A cap of 1: the node starts with `--max-turns 1` when the run has used no call. A run with no calls left starts no
+  node: it ends on the calls cap before its next step (`Gate::admit`, `runbook/src/engine/gate.rs`), so item 2 holds
+  for calls already.
+- Further cases: a cap of 30 gives `--max-turns 30`; a delegation that names no cap on a daemon started with
+  `--max-llm-calls 7` gives `--max-turns 7`.

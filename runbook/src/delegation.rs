@@ -62,6 +62,15 @@ pub const RETRIES: usize = 2;
 pub const CALL_RESERVATION_MICRO_USD: u64 = 1_000_000;
 /// The agent node every action of a generated protocol runs: the free run's.
 pub const AGENT_NODE: [&str; 2] = ["sdc-node", FREE_ACTION];
+/// The variable the daemon names the model calls a run has left in, as the agent node of a delegation starts: `sdc-node`
+/// takes the smaller of it and its `--max-turns` (`driver/src/bin/sdc-node/setup.rs`).
+pub const CALLS_LEFT_VARIABLE: &str = "RUNBOOK_CALLS_LEFT";
+
+/// Whether a program start is the agent node of a delegation: `sdc-node` (the last part of the program's path) on the
+/// action [`FREE_ACTION`] (the free run's and every action of a generated protocol) or [`CHANGE_ACTION`].
+pub fn is_agent_node(program: &str, args: &[String]) -> bool {
+    Path::new(program).file_name().is_some_and(|n| n == AGENT_NODE[0]) && args.first().is_some_and(|a| a == FREE_ACTION || a == CHANGE_ACTION)
+}
 
 const CLASSIFY_PROMPT: &str = include_str!("../../instructions/delegation.classify.md");
 const BUILD_PROMPT: &str = include_str!("../../instructions/delegation.build.md");
@@ -548,6 +557,22 @@ mod tests {
     }
 
     const BUILT: &str = "format: loom.bindings/1\nartifacts:\n  idea: elsewhere.yaml\n  result: result.md\nactions:\n  - action: tea.write\n    executor: {kind: program, argv: [sdc-node, delegation.free, --tools-dir, /x]}\n    evidence:\n      - {kind: result_written, subject: result, producer: sdc-node, from: exit, results: {\"0\": written}}\n";
+
+    #[test]
+    fn the_agent_node_of_a_delegation_is_sdc_node_on_the_free_or_the_change_action() {
+        let args = |a: &[&str]| a.iter().map(|s| (*s).to_owned()).collect::<Vec<String>>();
+        for (program, a, want) in [
+            ("sdc-node", args(&[FREE_ACTION, "--max-turns", "40"]), true),
+            ("/opt/runbook/libexec/sdc-node", args(&[FREE_ACTION]), true),
+            ("sdc-node", args(&[CHANGE_ACTION]), true),
+            ("sdc-node", args(&["change.fix", "--max-turns", "40"]), false),
+            ("sdc-node", args(&[]), false),
+            ("not-sdc-node", args(&[FREE_ACTION]), false),
+            ("sh", args(&["-c", "sdc-node delegation.free"]), false),
+        ] {
+            assert_eq!(is_agent_node(program, &a), want, "{program} {a:?}");
+        }
+    }
 
     #[test]
     fn a_generated_protocols_actions_run_the_daemons_agent_node_and_nothing_the_builder_names() {

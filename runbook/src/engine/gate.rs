@@ -240,10 +240,14 @@ impl Held {
 /// The runner every bound program of a daemon run starts through, a step's and an answer's: it
 /// reserves the per-call budget a program names before the program starts (the largest budget of
 /// the runbook for a program whose budget no source names), and starts nothing when the reservation is short
-/// (the step or answer is then ended as a cancelled one, which the run reads as the spend cap).
+/// (the step or answer is then ended as a cancelled one, which the run reads as the spend cap). The agent node of a
+/// delegation starts with the model calls the run has left ([`crate::delegation::CALLS_LEFT_VARIABLE`]: the call cap
+/// less the calls used, at least 1; a run with none left starts no step, [`Gate::admit`]), which bounds its turns.
 struct Reserving {
     inner: Arc<dyn TestRunner>,
     held: Arc<Held>,
+    meter: Arc<Meter>,
+    max_calls: u64,
 }
 
 impl TestRunner for Reserving {
@@ -267,6 +271,12 @@ impl TestRunner for Reserving {
         let want = self.held.reserves.of(child.program(), child.args());
         if want > 0 {
             self.held.reserve(want)?;
+        }
+        if crate::delegation::is_agent_node(child.program(), child.args()) {
+            let left = self.max_calls.saturating_sub(self.meter.usage().llm_calls).max(1);
+            let mut environment = child.environment().clone();
+            environment.set.insert(crate::delegation::CALLS_LEFT_VARIABLE.to_owned(), left.to_string());
+            return self.inner.run_child(&child.clone().with_environment(environment));
         }
         self.inner.run_child(child)
     }
@@ -579,7 +589,7 @@ impl Gate {
     /// The runner of the run's bound programs: `inner`, reserving the budget of each program that
     /// names one as it starts.
     pub fn runner(&self, inner: Arc<dyn TestRunner>) -> Arc<dyn TestRunner> {
-        Arc::new(Reserving { inner, held: self.held.clone() })
+        Arc::new(Reserving { inner, held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls })
     }
 
     /// Why the step just run ended before a program started, if it did (taken once).

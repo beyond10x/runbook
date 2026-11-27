@@ -2167,3 +2167,60 @@ fn change_implement_in_request_mode_in_the_layout_of_a_suite_finds_its_story_wha
         assert!(prompt.contains("you have no tools, nothing to read"), "{decoy:?}: {}", said(&o));
     }
 }
+
+/// The daemon names the model calls a delegation's run has left in `RUNBOOK_CALLS_LEFT` as its agent node starts
+/// (`runbook/src/engine/gate.rs`): the node's turn bound is the smaller of its `--max-turns` and that number, in the
+/// request of its call and in the command the adapter runs. Without the variable the binding's bound stands. A value
+/// that is not a whole number of at least 1 is refused before the model is called, as such a `--max-turns` is.
+#[test]
+fn the_agent_node_takes_the_smaller_of_its_max_turns_and_the_calls_its_run_has_left() {
+    let turns = |tag: &str, left: Option<&str>| {
+        let root = fresh(&format!("calls-left-{tag}"));
+        put(&root.join("work"), "request.yaml", "text: Write one sentence about tea.\n");
+        let mut s = start("delegation.free").with(&["--adapter", "dry", "--max-turns", "40", "--instructions", r#"{"task":"instructions/delegation.free.md"}"#]);
+        if let Some(left) = left {
+            s = s.env(&[("RUNBOOK_CALLS_LEFT", left)]);
+        }
+        s.binding = false;
+        let r = exec(&root, &s, "delegation-free");
+        let request = r.files.get(".sdc/llm/001-delegation.free/request.json").cloned();
+        let bound = request.as_deref().and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok()).map(|v| v["max_turns"].clone());
+        (r, bound)
+    };
+    for (tag, left, want) in [("none", None, 40), ("five", Some("5"), 5), ("thirty", Some("30"), 30), ("more", Some("50"), 40), ("equal", Some("40"), 40), ("one", Some("1"), 1)] {
+        // the dry adapter writes no result, so the node ends 1 after its call: the call is what is looked at
+        let (r, bound) = turns(tag, left);
+        assert_eq!(bound, Some(json!(want)), "{tag}: {r:#?}");
+        assert!(r.stderr.contains(&format!("'--max-turns' '{want}'")), "{tag}: the adapter's command does not carry the bound: {r:#?}");
+    }
+    for (tag, bad) in [("zero", "0"), ("text", "x"), ("empty", ""), ("negative", "-3"), ("fraction", "2.5")] {
+        let (r, bound) = turns(tag, Some(bad));
+        assert_eq!(r.code, Some(64), "{tag}: {r:#?}");
+        assert!(r.stdout.contains("RUNBOOK_CALLS_LEFT") || r.stderr.contains("RUNBOOK_CALLS_LEFT"), "{tag}: the refusal names no variable: {r:#?}");
+        assert_eq!(bound, None, "{tag}: a call was prepared: {r:#?}");
+    }
+}
+
+/// `RUNBOOK_CALLS_LEFT` takes digits only: a value Rust's integer parser reads (a leading `+`) or one with white space is
+/// refused like the others; leading zeros are digits. Catches a reader that drops the digits check and keeps only
+/// `parse::<u64>` (the existing case's bad values `0`, `x`, empty, `-3`, `2.5` are all refused by the parser alone).
+#[test]
+fn adv_turns_calls_left_takes_digits_only() {
+    let run = |node: &str, tag: &str, left: &str| {
+        let root = fresh(&format!("adv-calls-left-{tag}"));
+        put(&root.join("work"), "request.yaml", "text: Write one sentence about tea.\n");
+        let task = format!(r#"{{"task":"instructions/{node}.md"}}"#);
+        let mut s = start(node).with(&["--adapter", "dry", "--max-turns", "40", "--instructions", &task]).env(&[("RUNBOOK_CALLS_LEFT", left)]);
+        s.binding = false;
+        let r = exec(&root, &s, "delegation-free");
+        let request = r.files.iter().find(|(k, _)| k.starts_with(".sdc/llm/") && k.ends_with("/request.json")).map(|(_, v)| v.clone());
+        let bound = request.as_deref().and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok()).map(|v| v["max_turns"].clone());
+        (r, bound)
+    };
+    for (tag, bad) in [("plus", "+3"), ("space", " 3"), ("newline", "3\n")] {
+        let (r, bound) = run("delegation.free", tag, bad);
+        assert_eq!((r.code, bound.clone()), (Some(64), None), "{tag}: {bad:?} was taken as a bound: {bound:?} {r:#?}");
+    }
+    let (r, bound) = run("delegation.free", "leading-zero", "04");
+    assert_eq!(bound, Some(json!(4)), "04 is a whole number of at least 1: {r:#?}");
+}
