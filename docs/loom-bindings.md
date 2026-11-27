@@ -406,6 +406,27 @@ this repository's bindings elsewhere is this repository only while it holds one 
 That this repository keeps them is held by the test `the_three_files_the_pool_list_names_exist_in_this_repository`
 and by the full `scripts/check-bindings.sh`, which fails for a protocol whose `bindings/<name>.yaml` is missing.
 
+A runbook's route entries, `bindings/<id>.routes.yaml` (format `runbook.routes/1`, `docs/daemon-api.md`, "The
+catalog"), lie beside its bindings and are no bindings file: no step of `scripts/check-bindings.sh` reads one as
+bindings (the exits step, the budget step, the registrations step and the answers step), so a runbook with route
+entries passes `--exits <root>` as one without. The rule is the name: a file named `<id>.routes.yaml` that the daemon
+would not read as route entries is refused by the exits step by one line, `bindings/<id>.routes.yaml: a file of this
+name holds the route entries of runbook <id>, and` it is a link, which the daemon does not follow; it is not a
+regular file (a directory); it is larger than 65536 bytes; it is not YAML; it holds more than one YAML document; or
+its format is not `runbook.routes/1` (none, another, an empty file). The step reads only the document count and a
+`format` that is a string, never the document whole, so an alias is never expanded. A root whose `bindings/` holds
+route entries and no bindings file gets the one line `bindings/: no bindings file besides the route entries
+(<id>.routes.yaml)`. So a bindings file cannot be named `<id>.routes.yaml`, and a runbook cannot be named `<x>.routes`:
+the daemon refuses that name at a submit and a delegation and lists no such runbook (`runbook/src/engine/layout.rs`, `name_refusal`: `"<x>.routes" is not a
+runbook name: its bindings file bindings/<x>.routes.yaml is the name of the route entries of the runbook <x>`). The
+entries themselves are checked by `runbook check` with the daemon's own reader (`runbook/src/admission.rs`, `read`,
+`parse` and `shape`, the part of the daemon's `check` that holds whatever routes it declares: an entry that is not
+one, a `routes_allowed` that is no list of route names), one finding under `bindings` with the daemon's reason (a
+directory or a link of that name too), and by the daemon at each submit (`driver/tests/check_bindings_exits.rs`,
+`runbook/src/check.rs`, `runbook/tests/loom_run/runbook_dirs.rs`). Not checked by the exits step: text that is not
+UTF-8 is refused as no YAML (the daemon says "not UTF-8 text"), and the alias limit of the daemon's reader is left to
+`runbook check` and the daemon.
+
 The not-called code is 79. It is the one code that collides with no result-table key (the tables
 name only 0, 1, 3, 5, 8 and 77, the exits of the check tools; 77 is the refusal of the hand-back spec check, `docs/bugfix.md`) and
 with no `exits.error` code of any binding (75, 126, 127, 69, 70); Loom refuses a code that is in

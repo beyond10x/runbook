@@ -12,6 +12,9 @@
 //!    `llm.instructions` of the JSON form) is `instructions/<...>.md` without a `..` segment and
 //!    exists; the two forms name the same files per action; each program a YAML action names with a
 //!    `/` is an executable `tools/<file>` under `bindings/`, and no argument holds a `..` segment.
+//!    A runbook's route entries, `bindings/<id>.routes.yaml` (`runbook.routes/1`), are no bindings file: each is read
+//!    as the daemon reads it at a submit (`runbook::admission::read`, `parse` and `shape`), and a file (or a directory
+//!    or link of that name) it would refuse whatever routes it declares is one finding with the daemon's reason.
 //! 3. `instructions`: each `{{placeholder}}` is `{{[a-z_]+}}`; a file nothing names is reported.
 //!    `instructions/golden/` (rendered prompts kept as test data) is left out of both.
 //! 4. `views`: each `views/*.view.json` parses, is an object and has `"format": "runbook.view/1"`.
@@ -268,7 +271,10 @@ fn strings(v: &Value) -> Vec<&str> {
 
 fn bindings(root: &Path, r: &mut Report, seen: &mut Seen) {
     let jsons = files_ending(&root.join("driver/examples/sdc"), ".bindings.json");
-    let yamls = files_ending(&root.join("bindings"), ".yaml");
+    let yamls: Vec<PathBuf> = files_ending(&root.join("bindings"), ".yaml").into_iter().filter(|p| route_entries_of(p).is_none()).collect();
+    for p in route_files(&root.join("bindings")) {
+        route_entries(root, r, &p);
+    }
     seen.json = jsons.len();
     seen.yaml = yamls.len();
     let mut json_docs: BTreeMap<String, Value> = BTreeMap::new();
@@ -303,6 +309,39 @@ fn bindings(root: &Path, r: &mut Report, seen: &mut Seen) {
     for (name, doc) in &json_docs {
         json_instructions(root, r, name, doc);
     }
+}
+
+/// The runbook whose route entries `p` is named as: `bindings/<id>.routes.yaml` (`runbook::admission::file_name`).
+fn route_entries_of(p: &Path) -> Option<String> {
+    let name = p.file_name()?.to_string_lossy().into_owned();
+    name.strip_suffix(".routes.yaml").filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
+/// Every entry of `dir` named as route entries, sorted, whatever it is (a directory or a link too: the daemon opens the
+/// name and refuses what is no regular file).
+fn route_files(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir).map(|d| d.flatten().map(|e| e.path()).filter(|p| route_entries_of(p).is_some()).collect()).unwrap_or_default();
+    v.sort();
+    v
+}
+
+/// The route entries of a runbook (`runbook.routes/1`, `docs/daemon-api.md`, "The catalog"), Runbook's own file beside
+/// the bindings and no bindings file: read as the daemon reads it at a submit, one finding with the daemon's reason when
+/// it would refuse the file whatever routes it declares (`admission::read`, `parse` and `shape`, which the daemon's
+/// `admission::check` asks first).
+fn route_entries(root: &Path, r: &mut Report, p: &Path) {
+    let Some(id) = route_entries_of(p) else { return };
+    let file = rel(root, p);
+    let why = match runbook::admission::read(p, &id) {
+        None => return,
+        Some(Err(why)) => why,
+        Some(Ok(text)) => match runbook::admission::parse(&id, &text).and_then(|declared| runbook::admission::shape(&id, &declared)) {
+            Ok(()) => return,
+            Err(why) => why,
+        },
+    };
+    let what = why.strip_prefix(&format!("{}: ", runbook::admission::file_name(&id))).unwrap_or(&why).to_owned();
+    r.add("bindings", &file, what, "write the route entries as docs/daemon-api.md (\"The catalog\") says: the daemon refuses a submit of the runbook with this file");
 }
 
 fn yaml_bindings(root: &Path, r: &mut Report, name: &str, doc: &Value, json: Option<&Value>) {
@@ -1073,5 +1112,40 @@ mod tests {
         yaml_bindings(Path::new("."), &mut r, "x", &doc, None);
         let found: Vec<String> = r.findings.into_iter().map(|f| f.what).collect();
         assert!(found.len() == 1 && found[0].contains("the bindings file bindings/x.yaml names max_budget_usd"), "{found:?}");
+    }
+
+    /// The findings of the `bindings` check over a directory whose `bindings/` holds a bindings file `x.yaml` and the
+    /// route entries file `x.routes.yaml` that `routes` writes, and the count of bindings files it read.
+    fn route_file_findings(tag: &str, routes: impl Fn(&Path)) -> (Vec<String>, usize) {
+        let exe = std::env::current_exe().unwrap();
+        let root = exe.parent().unwrap().parent().unwrap().join("runbook-test-tmp").join(format!("check-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("bindings")).unwrap();
+        std::fs::write(root.join("bindings/x.yaml"), "format: loom.bindings/1\nactions:\n  - action: a.review\n    executor: {kind: person, principal: person:owner}\n").unwrap();
+        routes(&root.join("bindings"));
+        let (mut r, mut seen) = (Report::default(), Seen::default());
+        bindings(&root, &mut r, &mut seen);
+        let _ = std::fs::remove_dir_all(&root);
+        (r.findings.into_iter().map(|f| format!("{} {}: {}", f.check, f.file, f.what)).collect(), seen.yaml)
+    }
+
+    #[test]
+    fn a_route_file_is_read_as_the_daemon_reads_it_and_an_invalid_one_is_one_finding_naming_it() {
+        let valid = "format: runbook.routes/1\nmodel_routes:\n  default: {route: fast}\n  review: {needs: {wire: messages}}\nroutes_allowed: [fast]\n";
+        assert_eq!(route_file_findings("routes-valid", |b| std::fs::write(b.join("x.routes.yaml"), valid).unwrap()), (Vec::new(), 1));
+        for (tag, text, why) in [
+            ("routes-format", "format: loom.bindings/1\n", "the format is not runbook.routes/1"),
+            ("routes-member", "format: runbook.routes/1\nactions: []\n", "`actions` is not a member (known: format, model_routes, routes_allowed)"),
+            ("routes-entries", "format: runbook.routes/1\nmodel_routes: [fast]\n", "model_routes is a mapping of roles"),
+            ("routes-empty", "", "a mapping with format, model_routes and routes_allowed"),
+        ] {
+            let (found, read) = route_file_findings(tag, |b| std::fs::write(b.join("x.routes.yaml"), text).unwrap());
+            assert_eq!((found, read), (vec![format!("bindings bindings/x.routes.yaml: {why}")], 1), "{tag}");
+        }
+        let (found, read) = route_file_findings("routes-link", |b| {
+            std::fs::write(b.join("real.txt"), valid).unwrap();
+            std::os::unix::fs::symlink("real.txt", b.join("x.routes.yaml")).unwrap();
+        });
+        assert_eq!((found, read), (vec!["bindings bindings/x.routes.yaml: not a readable regular file (a link is not followed)".to_owned()], 1));
     }
 }
