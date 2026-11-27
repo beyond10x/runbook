@@ -299,7 +299,9 @@ fn adversary_b_a_cancel_while_the_classifier_answers_sends_no_build_call() {
     wait_for("the classifier's answer", Duration::from_secs(10), || {
         answered.load(Ordering::SeqCst)
     });
-    std::thread::sleep(Duration::from_millis(1500));
+    // a build call after the cancel would follow the classifier's answer within a few milliseconds; half a second
+    // proves none came
+    std::thread::sleep(Duration::from_millis(500));
     let end = until_ended(&l, &run);
     assert_eq!(end["run_state"], json!("Cancelled"), "{end}");
     assert_eq!(

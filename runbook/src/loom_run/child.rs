@@ -6,7 +6,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// What one call of `b10x-loom` left.
 #[derive(Debug)]
@@ -86,11 +86,19 @@ pub fn run(
     let pid = child.id();
     let out = pump(child.stdout.take().ok_or("no stdout pipe")?);
     let err = pump(child.stderr.take().ok_or("no stderr pipe")?);
+    // The exit is waited for on a thread of its own and handed over at once: a call is over when the child is, not at
+    // the next look of a poll. The cancel and the deadline are looked at every 10 ms while it runs.
+    let (tx, exited) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(child.wait());
+    });
+    let gone = |e: std::sync::mpsc::RecvError| format!("cannot wait for b10x-loom: {e}");
     let mut ended_by = None;
     let status = loop {
-        match child.try_wait().map_err(|e| format!("cannot wait for b10x-loom: {e}"))? {
-            Some(status) => break status,
-            None => {
+        match exited.recv_timeout(Duration::from_millis(10)) {
+            Ok(status) => break status.map_err(|e| format!("cannot wait for b10x-loom: {e}"))?,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err("cannot wait for b10x-loom: its waiter ended".to_owned()),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if cancel.load(Ordering::SeqCst) {
                     ended_by = Some(EndedBy::Signal);
                 } else if now() >= deadline_secs {
@@ -98,22 +106,16 @@ pub fn run(
                 }
                 if ended_by.is_some() {
                     signal_group(pid, libc::SIGTERM);
-                    let start = Instant::now();
-                    loop {
-                        if child.try_wait().map_err(|e| e.to_string())?.is_some() {
-                            break;
-                        }
-                        if start.elapsed() > Duration::from_secs(3) {
+                    let status = match exited.recv_timeout(Duration::from_secs(3)) {
+                        Ok(status) => status,
+                        Err(_) => {
                             signal_group(pid, libc::SIGKILL);
-                            let _ = child.wait();
-                            break;
+                            exited.recv().map_err(gone)?
                         }
-                        std::thread::sleep(Duration::from_millis(10));
-                    }
+                    };
                     signal_group(pid, libc::SIGKILL);
-                    break child.wait().map_err(|e| e.to_string())?;
+                    break status.map_err(|e| e.to_string())?;
                 }
-                std::thread::sleep(Duration::from_millis(10));
             }
         }
     };
