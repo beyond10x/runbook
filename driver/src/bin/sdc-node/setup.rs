@@ -57,6 +57,25 @@ pub struct Setup {
     pub copy: Option<PendingCopy>,
     /// The reasoning effort the caller names (`--effort`); the class default applies without it.
     pub effort: Option<String>,
+    /// The model calls the node's run has left, when the daemon names them ([`CALLS_LEFT_VARIABLE`]): the node's turn
+    /// bound is at most this.
+    pub calls_left: Option<u64>,
+}
+
+/// The variable the daemon names the model calls a delegation's run has left in as its agent node starts
+/// (`runbook/src/engine/gate.rs`).
+pub const CALLS_LEFT_VARIABLE: &str = "RUNBOOK_CALLS_LEFT";
+
+/// The calls the node's run has left ([`CALLS_LEFT_VARIABLE`]), when the variable is set: a whole number of at least 1,
+/// as `--max-turns` is. Any other value, the empty one included, is refused before anything is written, never read as
+/// no bound.
+fn calls_left(node: &str) -> R<Option<u64>> {
+    let Some(raw) = std::env::var_os(CALLS_LEFT_VARIABLE) else { return Ok(None) };
+    let raw = raw.to_string_lossy();
+    match raw.parse::<u64>() {
+        Ok(n) if n >= 1 && raw.bytes().all(|b| b.is_ascii_digit()) => Ok(Some(n)),
+        _ => Err(die(format!("llm-node: {node} could not run: {CALLS_LEFT_VARIABLE} takes a whole number of at least 1, got {}", sdc_tools::named::cut(&raw)), 64)),
+    }
 }
 
 const VALUED: [&str; 14] = [
@@ -105,6 +124,7 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     let given = |k: &str| opt.get(k).filter(|v| !v.is_empty()).cloned();
 
     let cfg = build_cfg(node, &opt, stub)?;
+    let calls_left = calls_left(node)?;
     let here = tools_directory(node, tools_dir)?;
     check_effort(node, &here, given("--effort").as_deref())?;
     let root = here.parent().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_else(|| here.clone());
@@ -152,7 +172,7 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
         feedback = target.or(feedback);
         copy = Some(pending);
     }
-    Ok(Setup { here, root, args, cfg, case, feedback, copy, effort: given("--effort") })
+    Ok(Setup { here, root, args, cfg, case, feedback, copy, effort: given("--effort"), calls_left })
 }
 
 /// `--effort` is one of the levels `node-classes.json` lists (`efforts`): both model CLIs ignore an

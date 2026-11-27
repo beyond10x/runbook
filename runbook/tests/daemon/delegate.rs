@@ -23,19 +23,21 @@ const OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nx-llm-g
 const DOWN: &[u8] = b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 58\r\nConnection: close\r\n\r\n{\"error\":{\"code\":\"unavailable\",\"message\":\"not ready yet\"}}";
 pub(super) const ANSWER: &str = "The answer of the free run.";
 
-/// A `claude` in bash for the free run's agent node: it keeps the prompt it was given (`log/prompt`), sends one
-/// Messages call to `ANTHROPIC_BASE_URL` with the model it was given, and when that call was answered 200 writes
-/// `out/result.md` in its working directory, as an agent that did the work would.
+/// A `claude` in bash for the free run's agent node: it keeps the prompt it was given (`log/prompt`) and its turn bound
+/// (a line of `log/turns`), sends one Messages call to `ANTHROPIC_BASE_URL` with the model it was given, and when that
+/// call was answered 200 writes `out/result.md` in its working directory, as an agent that did the work would.
 pub(super) fn claude_answering(log: &Path) -> String {
     format!(
         r#"#!/bin/bash
 log='{log}'
 prompt=''
 model=''
+turns=''
 prev=''
-for a in "$@"; do [ "$prev" = -p ] && prompt=$a; [ "$prev" = --model ] && model=$a; prev=$a; done
+for a in "$@"; do [ "$prev" = -p ] && prompt=$a; [ "$prev" = --model ] && model=$a; [ "$prev" = --max-turns ] && turns=$a; prev=$a; done
 printf '%s' "$prompt" > "$log/prompt"
 printf '%s\n' "$model" >> "$log/models"
+printf '%s\n' "$turns" >> "$log/turns"
 rest=${{ANTHROPIC_BASE_URL#http://}}
 hostport=${{rest%%/*}}
 base=''
@@ -109,12 +111,23 @@ fn daemon_with(tag: &str, answer: &'static [u8], tables: &str) -> Delegating {
 
 /// [`daemon_with`] on the stand-in gateway `gw`.
 fn daemon_on(tag: &str, gw: Gateway, tables: &str) -> Delegating {
-    let (h, l, roots) = daemon_at(tag, &gw.base_url, tables);
+    daemon_on_capped(tag, gw, tables, "100")
+}
+
+/// [`daemon_on`] with `calls` as the daemon's `--max-llm-calls`.
+fn daemon_on_capped(tag: &str, gw: Gateway, tables: &str, calls: &str) -> Delegating {
+    let (h, l, roots) = daemon_capped(tag, &gw.base_url, tables, calls);
     Delegating { h, gw, l, roots }
 }
 
 /// [`daemon_with`] on a gateway of the caller's at `base_url`: the home, the daemon and its context root.
 pub(super) fn daemon_at(tag: &str, base_url: &str, tables: &str) -> (Home, Live, std::path::PathBuf) {
+    daemon_capped(tag, base_url, tables, "100")
+}
+
+/// [`daemon_at`] with `calls` as the daemon's `--max-llm-calls`, the cap of a run that names none and the most one may
+/// name.
+fn daemon_capped(tag: &str, base_url: &str, tables: &str, calls: &str) -> (Home, Live, std::path::PathBuf) {
     let h = home(tag);
     answer_runbook(&h);
     let bin = h.log.join("bin");
@@ -143,7 +156,7 @@ pub(super) fn daemon_at(tag: &str, base_url: &str, tables: &str) -> (Home, Live,
         "--max-wall-seconds",
         "3600",
         "--max-llm-calls",
-        "100",
+        calls,
         "--cap-micro-usd",
         "1000000000",
     ];
@@ -1216,4 +1229,63 @@ fn the_free_runs_claude_asks_for_runbook_default_and_the_relay_takes_it_for_the_
     assert_eq!((end["outcome"].clone(), end["calls"].clone()), (json!("delivered"), json!(1)), "{end}");
     let sent = posted(&d.gw);
     assert_eq!(sent.iter().map(|g| g.body["model"].clone()).collect::<Vec<_>>(), vec![json!("a-model")], "the relay did not send the route's alias");
+}
+
+/// The turn bounds the stand-in `claude` was started with, one per start, in order.
+fn turns_given(h: &Home) -> Vec<String> {
+    std::fs::read_to_string(h.log.join("turns")).unwrap_or_default().lines().map(str::to_owned).collect()
+}
+
+/// A free run of `request` with `settings`, run to its end on `d`: its end row and the turn bound its `claude` got.
+fn free_run_turns(d: &Delegating, settings: Option<Value>) -> (Value, Option<String>) {
+    let mut body = json!({"request": "Write one sentence about tea.", "model_route": "default"});
+    if let Some(settings) = settings {
+        body["settings"] = settings;
+    }
+    let before = turns_given(&d.h).len();
+    let (status, answer, _) = delegate(&d.l, &body);
+    assert_eq!(status, 202, "{answer}");
+    let end = until_ended(&d.l, &run_of(&answer));
+    let given = turns_given(&d.h);
+    assert!(given.len() <= before + 1, "one free run started claude more than once: {given:?}");
+    (end, given.get(before).cloned())
+}
+
+/// The free run's agent node is bound to 40 turns by its bindings and to the calls its run has left by the daemon
+/// (`RUNBOOK_CALLS_LEFT`): it gets the smaller, so a run whose cap is below 40 ends on the node's own bound and not on
+/// the relay's refusal of a call over the cap. The cap is the delegation's `max_llm_calls`, else the daemon's.
+#[test]
+fn the_free_runs_agent_node_gets_the_smaller_of_40_turns_and_the_calls_its_run_has_left() {
+    let d = daemon("dlg-turns", OK);
+    // A cap of 1: the node gets 1 turn and its one call reaches the cap, so the run ends on the cap after that step
+    // (the caps are held before the tree is read again), with its result written.
+    for (cap, want, outcome) in [(Some("5"), "5", "delivered"), (Some("30"), "30", "delivered"), (Some("50"), "40", "delivered"), (Some("1"), "1", "stopped: llm calls"), (None, "40", "delivered")] {
+        let (end, got) = free_run_turns(&d, cap.map(|c| json!({"max_llm_calls": c})));
+        assert_eq!((end["outcome"].clone(), end["calls"].clone(), end["result_text"].clone()), (json!(outcome), json!(1), json!(format!("{ANSWER}\n"))), "cap {cap:?}: {end}");
+        assert_eq!(got.as_deref(), Some(want), "cap {cap:?}: the agent node's claude got another turn bound: {end}");
+    }
+    let statuses = std::fs::read_to_string(d.h.log.join("statuses")).unwrap_or_default();
+    assert!(statuses.lines().all(|s| s.contains(" 200 ")), "a call of a free run was refused: {statuses}");
+}
+
+/// A delegation that names no cap on a daemon whose cap is 7 takes the daemon's: its agent node gets 7 turns.
+#[test]
+fn a_free_run_that_names_no_cap_gets_the_daemons_cap_as_its_turn_bound() {
+    let low = daemon_on_capped("dlg-turns-low", gateway_listing(OK, &["a-model", "b-model"]), &format!("{}{ROUTE}", model_table(Some(&claude_cli()))), "7");
+    let (end, got) = free_run_turns(&low, None);
+    assert_eq!(end["outcome"], json!("delivered"), "{end}");
+    assert_eq!(got.as_deref(), Some("7"), "the daemon's cap did not bound the agent node: {end}");
+}
+
+/// The agent node of a generated protocol takes the same bound, counted after the classify and build calls the run
+/// spent: a cap of 5 less those 2 calls gives 3 turns.
+#[test]
+fn a_generated_protocols_agent_node_gets_the_calls_its_run_has_left_after_classify_and_build() {
+    let gw = classifying_gateway(vec![classified("answer-demo", 0.5), built(BUILT_PROTOCOL, BUILT_BINDINGS)]);
+    let d = daemon_on("dlg-turns-built", gw, &format!("{ROUTE}{CLASSIFY}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default", "settings": {"max_llm_calls": "5"}}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!((end["outcome"].clone(), end["path"].clone(), end["calls"].clone()), (json!("done"), json!("generated"), json!(3)), "{end}");
+    assert_eq!(turns_given(&d.h), ["3"], "the generated protocol's agent node got another turn bound: {end}");
 }

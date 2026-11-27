@@ -444,6 +444,15 @@ events and the web UI work on it unchanged.
   writing `result.md`. The daemon writes that runbook under its state directory at every start
   (`runbook/src/delegation.rs`); a `submit-run` does not find it. The free run's agent node reads the request
   whole, as the session wrote it, also when it reads as YAML.
+- The agent node of a delegation (the free run's, each action of a generated protocol, `delegation.change`) gets no
+  more turns than its run has model calls left. Its bindings give it `--max-turns 40`; as it starts, the daemon
+  names in `RUNBOOK_CALLS_LEFT` the run's `max_llm_calls` (the delegation's `settings`, else the daemon's
+  `--max-llm-calls`) less the calls the run has used, the classify and build calls included, at least 1, and
+  `sdc-node` takes the smaller of the two (`runbook/src/engine/gate.rs`, `Reserving`;
+  `driver/src/bin/sdc-node/setup.rs`, `calls_left`). The call's `request.json` names the bound. A cap of 30 gives
+  30 turns, 50 gives 40, 1 gives 1; a run with no calls left starts no step (`max_llm_calls` in the table of the
+  caps below), so the node ends on its own bound and not on the relay's `429 cap-reached`. A cap of 0 is refused at
+  submit. Other runbooks' agent nodes keep the `--max-turns` of their bindings.
 - Without `protocol` on a daemon with `[route_policy] classifier`, the run takes its path when it starts
   (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
   `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as
