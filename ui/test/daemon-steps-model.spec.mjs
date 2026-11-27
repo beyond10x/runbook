@@ -303,3 +303,27 @@ test('a run of 5000 steps: the step table, the feed and the Events tab each draw
   expect(best.bytes).toBeLessThan(400000);
   expect(best.ms).toBeLessThan(RENDER_MS);
 });
+
+// Adversary case of unit U2r: every kind of step that is over (exit 0, another exit, a check with either exit, a signal, a
+// timeout, a retry of one action): each count of the head equals the rows of the table in that state, and the words of
+// what runs now say the same counts.
+test('adversary U2r: the counts agree with the table row by row, for every kind of step that is over', () => {
+  const ev = [
+    program('a', 0), finished({action: 'a', exit: 3}, 1),
+    program('a', 2), finished({action: 'a', exit: 0}, 3),
+    program('w', 4), finished({action: 'w', refusal: 'ProgramSignalled: 9'}, 5),
+    program('t', 6), finished({action: 't', refusal: 'timed out'}, 7),
+    program('k', 8, 'check'), checked(1, 9, 'k'),
+    program('k2', 10, 'check'), checked(0, 11, 'k2'),
+    program('x', 12), finished({action: 'x', exit: 137}, 13),
+  ];
+  const m = runSteps(ev);
+  const now = Date.parse(T(30));
+  const table = renderStepsTable({state: 'Cancelled'}, m, now);
+  const rows = [...table.matchAll(/data-state="(\w+)"/g)].map((x) => x[1]);
+  const n = (s) => rows.filter((r) => r === s).length;
+  const words = [n('done') && `${n('done')} done`, n('exit') && `${n('exit')} exited non-zero`, n('ended') && `${n('ended')} ended with no exit`].filter(Boolean).join(', ');
+  expect(words).toBe('3 done, 2 exited non-zero, 2 ended with no exit');
+  expect(renderStepsHead({state: 'Cancelled'}, m, now)).toContain(`<span>${words}</span>`);
+  expect(runSay({state: 'Cancelled'}, m, now)).toBe(`Cancelled: ${words}, the last x ended with exit 137`);
+});

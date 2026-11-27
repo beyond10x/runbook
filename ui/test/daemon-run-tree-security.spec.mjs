@@ -140,10 +140,10 @@ test('inv 4 on the daemon page: case names, ids, protocols and an outcome that l
   await page.goto(`${d.base}/?run=${run}`);
   await expect(page.locator('#tree .case')).toHaveCount(2);
   seen.scripts = await page.locator('script').count();
-  // the root shows the last 8 characters of its id; the whole id is the title of the label and of the copy control
+  // the root shows the last 8 characters of its id, the whole id in its title; the copy control names the run's own id
   await expect(page.locator('#tree .case .cid')).toHaveText([hostile[0].case_id.slice(-8), hostile[1].name]);
   await expect(page.locator('#tree .case').first().locator('.cid')).toHaveAttribute('title', hostile[0].case_id);
-  await expect(page.locator('#tree .case').first().getByRole('button', {name: 'Copy run id'})).toHaveAttribute('title', `Copy the run id ${hostile[0].case_id}`);
+  await expect(page.locator('#tree .case').first().getByRole('button', {name: 'Copy run id'})).toHaveAttribute('title', `Copy the run id ${run}`);
   await page.locator('#tree .case').nth(1).click();
   await expect(page.locator('#gtitle .gt-id')).toHaveText(hostile[1].name);
   await expect(page.locator('#tree .case').nth(1).locator('.cst')).toHaveAttribute('data-v', `ended ${hostile[1].outcome}`);

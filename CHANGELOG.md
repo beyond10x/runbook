@@ -9,7 +9,7 @@ bare-version tags (`docs/releasing.md`).
 
 ### Changed
 - The daemon's run page counts the steps that are over apart: `4 done, 2 exited non-zero, 1 ended with no exit`, where it said `6 steps done` and `2 ended with an exit other than 0` beside it, which counted a step with an exit other than 0 twice (story `run-page-watches-a-live-run`; `ui/README.md`). The line of what runs now (`Between steps: ...`, `Cancelled: ...`) and the phone's bar use the same words; the bar shows them whole on hover (`ui/web/runsteps.js`).
-- The root case card of the daemon's run page names the run by the last 8 characters of its id on one line, where the whole id wrapped over three lines at laptop width; the whole id is the label's title and a copy control's (`Copy`, accessible name "Copy run id", reached with Tab), which writes it to the clipboard (story `run-page-watches-a-live-run`; `ui/web/app.js`, `ui/README.md`).
+- The root case card of the daemon's run page names the run by the last 8 characters of its id on one line, where the whole id wrapped over three lines at laptop width; the whole id is the label's title and a copy control's (`Copy`, accessible name "Copy run id", reached with Tab), which writes the run's id to the clipboard and says what came of it, `Copied` or `Copy failed`, in its words and in a status line for 2 s (story `run-page-watches-a-live-run`; `ui/web/app.js`, `ui/README.md`).
 
 ## [0.13.0] - 2026-11-26
 

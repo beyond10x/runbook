@@ -251,3 +251,121 @@ for (const vp of viewports.gating) {
     await ctx.close();
   });
 }
+
+// Adversary cases of unit U2r (run page round 2): the copy control of the root case card.
+// What a person perceives of a copy: the control's own words change or a live region says it (not a title, which a phone
+// and a keyboard never show, and not a colour alone).
+const copyTold = (page) => page.evaluate(() => {
+  const b = document.querySelector('#tree .cid-copy');
+  const live = [...document.querySelectorAll('[role=status],[role=alert],[aria-live]')].map((e) => e.textContent).join(' ');
+  return b?.textContent.trim() !== 'Copy' || /run id/i.test(live);
+});
+
+test('adversary U2r: a copy the browser cannot make (no clipboard: an insecure context) raises no error and is told on the page', async ({browser}) => {
+  const ctx = await browser.newContext({...ZONE, viewport: {width: 1366, height: 768}, reducedMotion: 'reduce'});
+  await ctx.addInitScript(() => Object.defineProperty(Navigator.prototype, 'clipboard', {configurable: true, get: () => undefined}));
+  const page = await ctx.newPage();
+  const errs = problems(page);
+  await open(page);
+  const copy = page.locator('#tree .case').getByRole('button', {name: 'Copy run id'});
+  await copy.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => copy.getAttribute('title'), 'the handler ran').toMatch(/did not allow/);
+  expect(errs, 'no uncaught error').toEqual([]);
+  await expect.poll(() => copyTold(page), {message: 'the failed copy is told by the control\'s words or a live region', timeout: 3000}).toBe(true);
+  await ctx.close();
+});
+
+test('adversary U2r: a copy that worked is told on the page in words, not by a colour alone', async ({browser}) => {
+  const ctx = await browser.newContext({...ZONE, viewport: {width: 1366, height: 768}, reducedMotion: 'reduce', permissions: ['clipboard-read', 'clipboard-write']});
+  const page = await ctx.newPage();
+  await open(page);
+  const copy = page.locator('#tree .case').getByRole('button', {name: 'Copy run id'});
+  await copy.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(LIVE);
+  await expect.poll(() => copyTold(page), {message: 'the copy is told by the control\'s words or a live region', timeout: 3000}).toBe(true);
+  await ctx.close();
+});
+
+test('adversary U2r: a copy refused once and then made: the control no longer says the browser did not allow it', async ({browser}) => {
+  const ctx = await browser.newContext({...ZONE, viewport: {width: 1366, height: 768}, reducedMotion: 'reduce'});
+  await ctx.addInitScript(() => {
+    let calls = 0;
+    window.__copied = [];
+    const fake = {writeText: (t) => (++calls === 1 ? Promise.reject(new DOMException('denied', 'NotAllowedError')) : (window.__copied.push(t), Promise.resolve()))};
+    Object.defineProperty(Navigator.prototype, 'clipboard', {configurable: true, get: () => fake});
+  });
+  const page = await ctx.newPage();
+  await open(page);
+  const copy = page.locator('#tree .case').getByRole('button', {name: 'Copy run id'});
+  await copy.focus();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => copy.getAttribute('title')).toMatch(/did not allow/);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual([LIVE]);
+  await expect(copy).not.toHaveAttribute('title', /did not allow/);
+  await ctx.close();
+});
+
+for (const vp of viewports.gating.filter((v) => ['1600x1000', '805x1270'].includes(v.name))) {
+  test(`adversary U2r: the case card at ${vp.name}: the run id short on one line, the copy control whole`, async ({browser}) => {
+    const ctx = await browser.newContext({...ZONE, viewport: {width: vp.width, height: vp.height}, reducedMotion: 'reduce'});
+    const page = await ctx.newPage();
+    await open(page);
+    const cid = page.locator('#tree .case .cid');
+    await expect(cid).toHaveText('0000a1b2');
+    const m = await page.locator('#tree .case').first().evaluate((card) => {
+      const e = card.querySelector('.cid'), b = card.querySelector('.cid-copy');
+      const r = document.createRange(); r.selectNodeContents(e);
+      const cr = card.getBoundingClientRect(), br = b.getBoundingClientRect();
+      return {lines: r.getClientRects().length, cut: e.scrollWidth > e.clientWidth + 1, copyInside: br.left >= cr.left - 1 && br.right <= cr.right + 1, copyCut: b.scrollWidth > b.clientWidth + 1};
+    });
+    expect(m).toEqual({lines: 1, cut: false, copyInside: true, copyCut: false});
+    await ctx.close();
+  });
+}
+
+test('adversary U2r: a root id that looks like markup, and one shorter than 8 characters: text in the card, whole in the title; the clipboard gets the run id', async ({browser}) => {
+  for (const id of ['r"><img src=x onerror=window.__pwned=70>&amp;\'x', 'r1']) {
+    const ctx = await browser.newContext({...ZONE, viewport: {width: 1366, height: 768}, reducedMotion: 'reduce', permissions: ['clipboard-read', 'clipboard-write']});
+    const page = await ctx.newPage();
+    const errs = problems(page);
+    await page.route((u) => u.pathname === '/daemon/views/cases', (q) => q.fulfill({status: 200, contentType: 'application/json', body: JSON.stringify({rows: [{case_id: id, protocol: 'investigate', case_state: 'Running'}]})}));
+    await open(page);
+    const cid = page.locator('#tree .case .cid');
+    await expect(cid).toHaveText(id.slice(-8));
+    await expect(cid).toHaveAttribute('title', id);
+    await page.locator('#tree .case').getByRole('button', {name: 'Copy run id'}).click();
+    // the control copies the run's own id, not the root case's: the label "Copy run id" is true by construction
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(LIVE);
+    expect(await page.evaluate(() => window.__pwned ?? null)).toBeNull();
+    expect(errs).toEqual([]);
+    await ctx.close();
+  }
+});
+
+// What the copy control says of the last copy is the page's state: a redraw while it shows (an event of the run
+// arrives) keeps it, and it goes back to "Copy" by itself.
+test('the copy control says "Copied" in its words and its status line through a redraw, then "Copy" again', async ({browser}) => {
+  const own = await serve({hold: 1});
+  const ctx = await browser.newContext({...ZONE, viewport: {width: 1366, height: 768}, reducedMotion: 'reduce', permissions: ['clipboard-read', 'clipboard-write']});
+  const page = await ctx.newPage();
+  await open(page, {d: own});
+  const copy = page.locator('#tree .case').getByRole('button', {name: 'Copy run id'});
+  const status = page.locator('#tree .case [role=status]');
+  await expect(copy).toHaveText('Copy');
+  await expect(status).toHaveText('');
+  await copy.click();
+  await expect(copy).toHaveText('Copied');
+  await expect(status).toHaveText('Run id copied');
+  // the held event: the step in flight starts and the page draws again
+  await fetch(`${own.base}/__fixture/next`);
+  await expect(page.locator('#dsteps tbody tr[data-state=running]')).toHaveCount(1);
+  await expect(copy).toHaveText('Copied');
+  await expect(copy).toHaveText('Copy', {timeout: 5000});
+  await expect(status).toHaveText('');
+  await expect(copy).toHaveAttribute('title', `Copy the run id ${LIVE}`);
+  await ctx.close();
+  own.close();
+});
