@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:a-wake-is-booked-only-when-it-succeeds
 kind: story
-status: draft
+status: active
 title: A wake is booked only when it succeeds
 summary: A refused or failed wake of a managed route books nothing against the daily wake cap
 relations:
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 2
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T13:46:46Z", actor: "agent:runbook", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-27T13:46:47Z", actor: "agent:runbook", revision: 4}
 ---
 ## Outcome
 

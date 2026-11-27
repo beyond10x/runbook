@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:a-managed-route-books-its-pods-measured-time
 kind: story
-status: draft
+status: active
 title: A managed route books its pod's measured time
 summary: A run on a managed route books its share of the pod's measured time at the gateway's price per hour against the route's daily cap
 relations:
 - informed_by: story:a-wake-is-booked-only-when-it-succeeds
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T13:46:47Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T13:46:48Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
