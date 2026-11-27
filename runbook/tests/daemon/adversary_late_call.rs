@@ -203,3 +203,65 @@ fn adversary_late_call_a_late_route_refusal_does_not_fail_the_step_that_runs_whe
     assert!(failed.is_empty(), "a route refusal booked after its step ended failed the step that ran then: {failed:?} {end}");
     assert_eq!((end["state"].clone(), end["outcome"].clone()), (json!("Ended"), json!("delivered")), "{end}");
 }
+
+/// Second pass. The root `adv-held`: it opens the child case `first` (protocol `adv.notes`, bindings `adv-held-notes`),
+/// then, once its children passed, runs its own program step `finish.write` (`tools/adv-held-finish.sh`; exit 1 is in
+/// `exits.error`, exit 0 and 3 are `written`).
+fn held_runbook(h: &Home) {
+    let protocol = "format: protocol/1\nprotocol:\n  id: adv-held\n  revision: 1\n  description: >-\n    A child case, then a step of the root.\nartifacts:\n  idea: {}\n  finish: {}\nevidence_kinds:\n  case_outcome: {}\n  first_opened: {}\n  finish_written: {}\nclaims:\n  first.opened:\n    true_when:\n      evidence: {kind: first_opened, subject: idea, result: opened}\n  children.passed:\n    true_when:\n      children: {in: [passed]}\n  finish.written:\n    true_when:\n      evidence: {kind: finish_written, subject: finish, result: written}\nactions:\n  first.open:\n    effect: write\n    precondition: {claim: first.opened, is: unknown}\n    case_open: {protocol: adv.notes, subject: idea}\n    may_produce:\n      - evidence: first_opened\n  finish.write:\n    effect: write\n    precondition:\n      all:\n        - {claim: first.opened}\n        - {claim: children.passed}\n        - {claim: finish.written, is: unknown}\n    may_produce:\n      - evidence: finish_written\noutcomes:\n  delivered:\n    requires:\n      all:\n        - {claim: first.opened}\n        - {claim: children.passed}\n        - {claim: finish.written}\n";
+    let bindings = "format: loom.bindings/1\nprotocol: adv-held@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\n  finish: finish.md\nactions:\n  - action: first.open\n    executor:\n      kind: open\n      name: first\n      bindings: adv-held-notes.yaml\n    evidence:\n      - kind: first_opened\n        subject: idea\n        producer: loom\n        from: effect\n        results: {performed: opened}\n  - action: finish.write\n    executor:\n      kind: program\n      argv: [tools/adv-held-finish.sh, --max-budget-usd, \"0.5\"]\n    exits: {error: [1, 75, 126, 127]}\n    timeout_seconds: 20\n    evidence:\n      - kind: finish_written\n        subject: finish\n        producer: late\n        from: exit\n        results: {\"0\": written, \"3\": written, timeout: failed, \"*\": failed}\n";
+    std::fs::write(h.home.join("protocol/adv-held.protocol.yaml"), protocol).unwrap();
+    std::fs::write(h.home.join("bindings/adv-held.yaml"), bindings).unwrap();
+    child_protocol(h, "adv", "notes");
+    child_bindings(h, "adv", "notes", "adv-held-notes", "notes.md");
+}
+
+/// The upstream's refusal the gateway relayed (`invalid_request_error` 400): a call its client may recover from.
+fn upstream_refusal(call: &str) -> Vec<u8> {
+    answer("400 Bad Request", call, &json!({"type": "error", "error": {"type": "invalid_request_error", "message": "max_tokens too large"}}).to_string())
+}
+
+/// Runs `adv-held`: `notes.write` (child case) makes one call, answered 502, and exits 3, an exit its bindings take as
+/// `written`, so the child case passes and the protocol goes on. `finish.write` (root) makes one call when `own_call`
+/// (answered 400 `invalid_request_error`) and exits 1, an exit its `exits.error` lists: that step failed. The run's end
+/// and its failures.
+fn held_run(tag: &str, own_call: bool) -> (Vec<Value>, Value, Named) {
+    let n = Arc::new(AtomicU64::new(0));
+    let gw = gateway_answering(
+        move |_| match n.fetch_add(1, Ordering::SeqCst) {
+            0 => upstream_failed("gw-call-held"),
+            1 => upstream_refusal("gw-call-finish"),
+            _ => OK.to_vec(),
+        },
+        &["a-model"],
+    );
+    let (h, l, _roots) = daemon_at(tag, &gw.base_url, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))));
+    held_runbook(&h);
+    write_exe(&h.home.join("bindings/tools/adv-held-notes.sh"), &format!("{}call ''\nprintf 'notes\\n' > notes.md\nexit 3\n", head(&h)));
+    let finish_call = if own_call { "call ''\n" } else { "" };
+    write_exe(&h.home.join("bindings/tools/adv-held-finish.sh"), &format!("{}{finish_call}exit 1\n", head(&h)));
+    let run = submitted(&l, "adv-held");
+    settled(&l, &run)
+}
+
+/// Second pass, gap 4 (`Gate::hold_failed`): the held call of a step that went on (exit 3 taken as `written`, its case
+/// passed) is not the cause of a later step's failure. `finish.write` of the root fails (exit 1, `exits.error`) with no
+/// call of its own: the run ends naming that step, as a step that fails without a failed call does
+/// (`failed: step finish.write ...`), and no `runbook.runtime-failed` names the earlier step's 502.
+#[test]
+fn adversary_late_call_a_held_call_of_a_step_that_went_on_is_not_the_cause_of_a_later_steps_failure() {
+    let (failed, end, noted) = held_run("adv-held-none", false);
+    assert!(failed.is_empty(), "the held call of notes.write, whose case passed, was made the cause of finish.write's failure: {failed:?} {end}");
+    assert!(end["outcome"].as_str().is_some_and(|o| o.starts_with("failed: step finish.write")), "the run does not end naming the step that failed: {end}");
+    assert_eq!(noted, vec![(json!("notes.write"), vec![json!("gw-call-held")])], "the held call is not named once under its step");
+}
+
+/// Second pass, the same run where `finish.write` has a failed call of its own (400) before it exits 1: story
+/// `a-recovered-call-does-not-fail-the-run`, "A failed call in a step whose program exits non-zero ends the run with that
+/// call as its first cause". The first cause is `finish.write`'s own refused call, not the held 502 of `notes.write`.
+#[test]
+fn adversary_late_call_a_failed_steps_own_call_and_not_a_held_call_is_the_runs_first_cause() {
+    let (failed, end, _) = held_run("adv-held-own", true);
+    let first = failed.first().and_then(Value::as_str).unwrap_or_default();
+    assert!(first.starts_with("call-refused: route default (chosen by run) refused the call: invalid_request_error"), "the failed step's own call is not the run's first cause: {failed:?} {end}");
+}

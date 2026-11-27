@@ -734,3 +734,117 @@ fn adversary_late_call_a_caller_that_half_closes_but_still_reads_gets_its_answer
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0].0["cause"], Value::Null, "{lines:?}");
 }
+
+/// Second pass: a gateway like [`splitting_gateway`] that, after the signal and 30 ms, writes `rest` in pieces of `piece`
+/// bytes, 1 ms apart (each one read on its own by the relay), then reads until the relay closes the connection.
+fn trickling_gateway(first: Vec<u8>, part: Vec<u8>, rest: Vec<u8>, piece: usize) -> (Gateway, std::sync::mpsc::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let kept = got.clone();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ = stream.set_nodelay(true);
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut raw = Vec::new();
+        let mut byte = [0u8; 1];
+        while !raw.ends_with(b"\r\n\r\n") && raw.len() < 64 * 1024 {
+            match stream.read(&mut byte) {
+                Ok(1) => raw.push(byte[0]),
+                _ => break,
+            }
+        }
+        let head = String::from_utf8_lossy(&raw).into_owned();
+        let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+        let mut body = vec![0u8; length];
+        let _ = stream.read_exact(&mut body);
+        kept.lock().unwrap().push(Got { head, body: serde_json::from_slice(&body).unwrap_or(Value::Null) });
+        let _ = stream.write_all(&first);
+        let _ = stream.flush();
+        let _ = stream.write_all(&part);
+        let _ = stream.flush();
+        let _ = gone.recv_timeout(Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(30));
+        for bytes in rest.chunks(piece) {
+            let _ = stream.write_all(bytes);
+            let _ = stream.flush();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let mut sink = [0u8; 256];
+        while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
+    });
+    (Gateway { base_url, got }, go)
+}
+
+/// One streamed call of the role `review` on `s` to the gateway `review` (no price on the route), as raw HTTP; the
+/// caller's connection and the book of the run.
+fn streamed_call(s: &Served, review: &Gateway, run: &str, close: bool) -> (std::net::TcpStream, Arc<Book>, runbook::relay::Ticket) {
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "run");
+    let ticket = s.relay.open(run, table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let body = json!({"model": "review", "stream": true, "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).to_string();
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+    let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+    caller.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    let close = if close { "Connection: close\r\n" } else { "" };
+    write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\n{close}Content-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+    (caller, book, ticket)
+}
+
+const ADV_START: &str = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1000,\"output_tokens\":1}}}\n\n";
+const ADV_LAST: &str = "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":50}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+const ADV_HEAD: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-llm-gateway-call: call-adv\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+
+/// Second pass, the partial-chunk carry: the last chunk's size line carries a chunk extension (`;ext=1`), the caller
+/// hangs up when the relay has read only its first byte, and the rest (the size line's end, the chunk, the end of the
+/// body) comes 30 ms later in 8-byte pieces, each read on its own. It all ended within the 200 ms grace: the call is
+/// booked as answered with the 50 output tokens of that chunk.
+#[test]
+fn adversary_late_call_a_size_line_with_an_extension_cut_at_the_hang_up_and_a_chunk_in_many_reads_is_booked_as_answered() {
+    let s = served("relay-adv-trickle");
+    let mut first = ADV_HEAD.to_vec();
+    first.extend(chunk(ADV_START));
+    let whole = format!("{:x};ext=1\r\n{ADV_LAST}\r\n", ADV_LAST.len()).into_bytes();
+    let mut rest = whole[1..].to_vec();
+    rest.extend_from_slice(b"0\r\n\r\n");
+    let (review, go) = trickling_gateway(first, whole[..1].to_vec(), rest, 8);
+    let (mut caller, book, _ticket) = streamed_call(&s, &review, "run-adv-trickle", false);
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 1024];
+    while !String::from_utf8_lossy(&seen).contains("message_start") {
+        let n = caller.read(&mut buf).unwrap_or(0);
+        assert!(n > 0, "setup: the answer's first event never reached the caller: {}", String::from_utf8_lossy(&seen));
+        seen.extend_from_slice(&buf[..n]);
+    }
+    std::thread::sleep(Duration::from_millis(150));
+    drop(caller);
+    go.send(()).unwrap();
+    let lines = wait_for_lines_within(&book, 1, Duration::from_secs(3));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let line = &lines[0].0;
+    assert_eq!((line["cause"].clone(), line["output_tokens"].clone()), (Value::Null, json!(50)), "an answer carried across the hang-up in many reads was not booked as answered with its tokens: {line}");
+}
+
+/// Second pass, trailers (RFC 9112 7.1.2): the gateway ends its chunked answer with a trailer field
+/// (`0\r\nx-trailer: 1\r\n\r\n`) and keeps its connection open after it. The answer has ended there: the caller, which
+/// asked for `Connection: close`, reads the whole answer within 2 s, and the call is booked by then. The relay before this
+/// change read each trailer line into a fresh buffer and ended at the empty line.
+#[test]
+fn adversary_late_call_an_answer_that_ends_with_a_trailer_ends_for_the_caller_and_is_booked() {
+    let s = served("relay-adv-trailer");
+    let mut first = ADV_HEAD.to_vec();
+    first.extend(chunk(ADV_START));
+    first.extend(chunk(ADV_LAST));
+    let (review, go) = trickling_gateway(first, Vec::new(), b"0\r\nx-trailer: 1\r\n\r\n".to_vec(), 64);
+    go.send(()).unwrap();
+    let started = std::time::Instant::now();
+    let (mut caller, book, _ticket) = streamed_call(&s, &review, "run-adv-trailer", true);
+    let mut answer = Vec::new();
+    let _ = caller.read_to_end(&mut answer);
+    let took = started.elapsed();
+    let lines = book.lines.lock().unwrap().clone();
+    let text = String::from_utf8_lossy(&answer);
+    assert!(text.contains("message_stop") && took < Duration::from_secs(2) && lines.len() == 1, "an answer that ended with a trailer did not end for its caller within 2 s (took {took:?}; booked {lines:?}): {text:?}");
+}
