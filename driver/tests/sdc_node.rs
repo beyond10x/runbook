@@ -2200,3 +2200,27 @@ fn the_agent_node_takes_the_smaller_of_its_max_turns_and_the_calls_its_run_has_l
         assert_eq!(bound, None, "{tag}: a call was prepared: {r:#?}");
     }
 }
+
+/// `RUNBOOK_CALLS_LEFT` takes digits only: a value Rust's integer parser reads (a leading `+`) or one with white space is
+/// refused like the others; leading zeros are digits. Catches a reader that drops the digits check and keeps only
+/// `parse::<u64>` (the existing case's bad values `0`, `x`, empty, `-3`, `2.5` are all refused by the parser alone).
+#[test]
+fn adv_turns_calls_left_takes_digits_only() {
+    let run = |node: &str, tag: &str, left: &str| {
+        let root = fresh(&format!("adv-calls-left-{tag}"));
+        put(&root.join("work"), "request.yaml", "text: Write one sentence about tea.\n");
+        let task = format!(r#"{{"task":"instructions/{node}.md"}}"#);
+        let mut s = start(node).with(&["--adapter", "dry", "--max-turns", "40", "--instructions", &task]).env(&[("RUNBOOK_CALLS_LEFT", left)]);
+        s.binding = false;
+        let r = exec(&root, &s, "delegation-free");
+        let request = r.files.iter().find(|(k, _)| k.starts_with(".sdc/llm/") && k.ends_with("/request.json")).map(|(_, v)| v.clone());
+        let bound = request.as_deref().and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok()).map(|v| v["max_turns"].clone());
+        (r, bound)
+    };
+    for (tag, bad) in [("plus", "+3"), ("space", " 3"), ("newline", "3\n")] {
+        let (r, bound) = run("delegation.free", tag, bad);
+        assert_eq!((r.code, bound.clone()), (Some(64), None), "{tag}: {bad:?} was taken as a bound: {bound:?} {r:#?}");
+    }
+    let (r, bound) = run("delegation.free", "leading-zero", "04");
+    assert_eq!(bound, Some(json!(4)), "04 is a whole number of at least 1: {r:#?}");
+}

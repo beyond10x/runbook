@@ -451,8 +451,12 @@ events and the web UI work on it unchanged.
   `sdc-node` takes the smaller of the two (`runbook/src/engine/gate.rs`, `Reserving`;
   `driver/src/bin/sdc-node/setup.rs`, `calls_left`). The call's `request.json` names the bound. A cap of 30 gives
   30 turns, 50 gives 40, 1 gives 1; a run with no calls left starts no step (`max_llm_calls` in the table of the
-  caps below), so the node ends on its own bound and not on the relay's `429 cap-reached`. A cap of 0 is refused at
-  submit. Other runbooks' agent nodes keep the `--max-turns` of their bindings.
+  caps below). So a node that makes one model call per turn ends on its own bound and not on the relay's
+  `429 cap-reached`; a call the CLI sends again after a failed answer, or one it makes on its own (a compaction), is
+  counted by the relay and is no turn, so such a node can still reach the cap. A node that spends every call left
+  ends the run `stopped: llm calls` after its step, its `result.md` written or not: the caps are held before the
+  tree is read again. A cap of 0 is refused at submit. Other runbooks' agent nodes keep the `--max-turns` of their
+  bindings.
 - Without `protocol` on a daemon with `[route_policy] classifier`, the run takes its path when it starts
   (`docs/model-routes.md`, section 9; `runbook/src/engine/classify.rs`). It is submitted under the runbook
   `delegation`, and `RunDelegated` holds no `path`. One Messages call on the classifier route, through the relay as

@@ -1289,3 +1289,115 @@ fn a_generated_protocols_agent_node_gets_the_calls_its_run_has_left_after_classi
     assert_eq!((end["outcome"].clone(), end["path"].clone(), end["calls"].clone()), (json!("done"), json!("generated"), json!(3)), "{end}");
     assert_eq!(turns_given(&d.h), ["3"], "the generated protocol's agent node got another turn bound: {end}");
 }
+
+// ---- adversary: the turn bound on a second start, a free path the builder chose, and the change runbook ----
+
+/// A `claude` in bash that follows `log/plan`, one line per start (`<calls> <yes|no>`): it records its turn bound (a
+/// line of `log/turns`), sends that many Messages calls to `ANTHROPIC_BASE_URL` (each status a line of
+/// `log/statuses`), and writes `out/result.md` only on `yes`; on `no` it exits 75 with no result.
+fn claude_planned(log: &Path) -> String {
+    format!(
+        r#"#!/bin/bash
+log='{log}'
+model=''
+turns=''
+prev=''
+for a in "$@"; do [ "$prev" = --model ] && model=$a; [ "$prev" = --max-turns ] && turns=$a; prev=$a; done
+printf '%s\n' "$turns" >> "$log/turns"
+n=$(wc -l < "$log/turns")
+line=$(sed -n "${{n}}p" "$log/plan")
+calls=${{line%% *}}
+write=${{line##* }}
+rest=${{ANTHROPIC_BASE_URL#http://}}
+hostport=${{rest%%/*}}
+base=''
+[ "$rest" = "$hostport" ] || base=/${{rest#*/}}
+body="{{\"model\":\"$model\",\"max_tokens\":8,\"messages\":[{{\"role\":\"user\",\"content\":\"hi\"}}]}}"
+i=0
+while [ "$i" -lt "${{calls:-0}}" ]; do
+  exec 3<>"/dev/tcp/${{hostport%:*}}/${{hostport##*:}}" || exit 7
+  printf 'POST %s/v1/messages HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' "$base" "$hostport" "${{ANTHROPIC_AUTH_TOKEN-}}" "${{#body}}" "$body" >&3
+  answer=$(cat <&3)
+  exec 3<&-
+  printf '%s\n' "${{answer%%$'\r'*}}" >> "$log/statuses"
+  i=$((i + 1))
+done
+if [ "$write" != yes ]; then
+  printf '%s\n' '{{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"usage":{{"input_tokens":0,"output_tokens":0}},"result":"","terminal_reason":"api_error","api_error_status":529}}'
+  exit 75
+fi
+mkdir -p out && printf '%s\n' '{ANSWER}' > out/result.md
+printf '%s\n' '{{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"usage":{{"input_tokens":0,"output_tokens":0}},"result":"ok","terminal_reason":"completed"}}'
+"#,
+        log = log.display()
+    )
+}
+
+/// A generated protocol of two actions, run one after the other: the first a step with its own instruction (`--step`
+/// in its argv), the second plain.
+const BUILT_TWO_PROTOCOL: &str = "format: protocol/1\nprotocol:\n  id: built-two\n  revision: 1\n  description: >-\n    Two steps a builder wrote for one request.\nartifacts:\n  idea: {}\n  result: {}\nevidence_kinds:\n  draft_written: {}\n  result_written: {}\nclaims:\n  draft.written:\n    true_when:\n      evidence: {kind: draft_written, subject: result, result: written}\n  result.written:\n    true_when:\n      evidence: {kind: result_written, subject: result, result: written}\nactions:\n  tea.draft:\n    effect: write\n    precondition:\n      all:\n        - claim: draft.written\n          is: unknown\n    may_produce:\n      - evidence: draft_written\n  tea.write:\n    effect: write\n    precondition:\n      all:\n        - claim: draft.written\n    may_produce:\n      - evidence: result_written\noutcomes:\n  done:\n    requires: {claim: result.written}\n";
+
+/// The bindings the builder writes for [`BUILT_TWO_PROTOCOL`]: both actions the daemon's agent node.
+const BUILT_TWO_BINDINGS: &str = "format: loom.bindings/1\nartifacts:\n  idea: request.yaml\n  result: result.md\nactions:\n  - action: tea.draft\n    instruction: Write a first draft of one sentence about tea.\n    executor: {kind: program, argv: [sdc-node, delegation.free]}\n    evidence:\n      - {kind: draft_written, subject: result, producer: sdc-node, from: exit, results: {\"0\": written, timeout: failed, \"*\": failed}}\n  - action: tea.write\n    executor: {kind: program, argv: [sdc-node, delegation.free]}\n    evidence:\n      - {kind: result_written, subject: result, producer: sdc-node, from: exit, results: {\"0\": written, timeout: failed, \"*\": failed}}\n";
+
+/// Each action of a generated protocol is bounded by the calls the run has left as that action starts: a cap of 6 less
+/// classify and build gives the first action 4 turns, and after its one call the second action 3.
+#[test]
+fn adv_turns_the_second_action_of_a_generated_protocol_gets_the_calls_left_after_the_first_action() {
+    let gw = classifying_gateway(vec![classified("answer-demo", 0.5), built(BUILT_TWO_PROTOCOL, BUILT_TWO_BINDINGS)]);
+    let d = daemon_on("dlg-adv-built-two", gw, &format!("{ROUTE}{CLASSIFY}"));
+    write_exe(&d.h.log.join("bin/claude"), &claude_planned(&d.h.log));
+    std::fs::write(d.h.log.join("plan"), "1 yes\n1 yes\n").unwrap();
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default", "settings": {"max_llm_calls": "6"}}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!((end["outcome"].clone(), end["path"].clone(), end["calls"].clone()), (json!("done"), json!("generated"), json!(4)), "{end}");
+    assert_eq!(turns_given(&d.h), ["4", "3"], "the generated protocol's actions got other turn bounds: {end}");
+}
+
+/// A classified delegation whose builder chose the free run (`{"free": true}`) spent 2 calls (classify, build) before its
+/// free run's agent node starts: with a cap of 5 that node gets 3 turns (story, Acceptance 3).
+#[test]
+fn adv_turns_the_free_run_a_builder_chose_after_classify_gets_the_cap_less_the_two_calls() {
+    let gw = classifying_gateway(vec![classified("answer-demo", 0.5), r#"{"free":true}"#.to_owned()]);
+    let d = daemon_on("dlg-adv-built-free", gw, &format!("{ROUTE}{CLASSIFY}"));
+    let (status, body, _) = delegate(&d.l, &json!({"request": "Write one sentence about tea.", "model_route": "default", "settings": {"max_llm_calls": "5"}}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!((end["path"].clone(), end["calls"].clone()), (json!("free"), json!(3)), "{end}");
+    assert_eq!(turns_given(&d.h), ["3"], "the free run after classify and build got another turn bound: {end}");
+}
+
+/// Only the agent node of a delegation is told the calls its run has left (`docs/daemon-api.md`: "Other runbooks' agent
+/// nodes keep the `--max-turns` of their bindings"). A runbook a delegation names whose program is also called `sdc-node`,
+/// on another action, under a cap of 5, starts without `RUNBOOK_CALLS_LEFT`. Catches a runner that names the variable to
+/// every program, or to every `sdc-node` whatever its action.
+#[test]
+fn adv_turns_a_named_runbooks_sdc_node_on_another_action_is_not_told_the_calls_left() {
+    let d = daemon("dlg-adv-other-node", OK);
+    let protocol = "format: protocol/1\nprotocol:\n  id: other-node\n  revision: 1\n  description: >-\n    A runbook whose program is named sdc-node and runs another action.\nartifacts:\n  idea: {}\n  result: {}\nevidence_kinds:\n  result_written: {}\nclaims:\n  result.written:\n    true_when:\n      evidence: {kind: result_written, subject: result, result: written}\nactions:\n  other.write:\n    effect: write\n    may_produce:\n      - evidence: result_written\noutcomes:\n  answered:\n    requires: {claim: result.written}\n";
+    let bindings = "format: loom.bindings/1\nprotocol: other-node@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\n  result: result.md\nactions:\n  - action: other.write\n    executor:\n      kind: program\n      argv: [tools/sdc-node, change.fix, --max-turns, \"40\", --max-budget-usd, \"0.5\"]\n    evidence:\n      - kind: result_written\n        subject: result\n        producer: other\n        from: exit\n        results: {\"0\": written, timeout: failed, \"*\": failed}\n";
+    std::fs::write(d.h.home.join("protocol/other-node.protocol.yaml"), protocol).unwrap();
+    std::fs::write(d.h.home.join("bindings/other-node.yaml"), bindings).unwrap();
+    let program = format!("#!/bin/bash\nprintf '%s\\n' \"${{RUNBOOK_CALLS_LEFT-unset}}\" >> '{}/calls-left-seen'\nprintf 'answered\\n' > result.md\n", d.h.log.display());
+    write_exe(&d.h.home.join("bindings/tools/sdc-node"), &program);
+    let (status, body, _) = delegate(&d.l, &json!({"request": "red or blue", "protocol": "other-node", "model_route": "default", "settings": {"max_llm_calls": "5"}}));
+    assert_eq!(status, 202, "{body}");
+    let end = until_ended(&d.l, &run_of(&body));
+    assert_eq!(end["outcome"], json!("answered"), "{end}");
+    let seen = std::fs::read_to_string(d.h.log.join("calls-left-seen")).unwrap_or_default();
+    assert_eq!(seen, "unset\n", "a program that is not a delegation's agent node was told the calls left: {end}");
+}
+
+/// The agent node of `delegation-change` (`sdc-node delegation.change`) is bounded as the free run's: a cap of 4 with no
+/// call spent gives `claude --max-turns 4`.
+#[test]
+fn adv_turns_the_change_runbooks_agent_node_gets_the_runs_call_cap_as_its_turn_bound() {
+    let r = super::delegate_change::rig("dlg-adv-change-turns", "");
+    let run = r.accepted(json!({"request": "Add a file.", "model_route": "default", "repository": "demo", "settings": {"max_llm_calls": "4"}}));
+    let end = r.until_ended(&run);
+    let argv: Vec<String> = r.log("claude-argv").lines().map(str::to_owned).collect();
+    let bound = argv.iter().position(|a| a == "--max-turns").and_then(|i| argv.get(i + 1)).cloned();
+    assert_eq!(bound.as_deref(), Some("4"), "the change's agent node got another turn bound: {argv:?} {end}");
+    assert_eq!(end["outcome"], json!("delivered"), "{end}");
+}
