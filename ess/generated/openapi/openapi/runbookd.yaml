@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:4c5564c07cca3c24a83109a52c679f20e7b5494ecd72de485e5d9c8597be132a
+# contract digest slice-sha256/2:31a4acd14a587bcd7093b69b5032588f207d4f0a0f0307070c32cabd59586fd5
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:4c5564c07cca3c24a83109a52c679f20e7b5494ecd72de485e5d9c8597be132a
+    contract_digest: slice-sha256/2:31a4acd14a587bcd7093b69b5032588f207d4f0a0f0307070c32cabd59586fd5
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -5198,7 +5198,7 @@ x-ess-entities:
         description: 'The step whose program runs now, while the run is Running; absent otherwise (no program runs, the run waits, ended, was cancelled, or the daemon started again). No command of the language sets it: the daemon keeps it in its process from the run event `runbook.action-started` until the program ends, like the rows of Runbook, and a restarted daemon has none.'
       model_route:
         $ref: '#/x-ess-entities/sdc.daemon.RouteName'
-        description: 'The route of the run''s role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon''s `route_policy.default`. Absent for a run that makes no model call (its runbook runs no bound program and no agent node, and its decider is not a model above A0), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook''s first model call.'
+        description: 'The route of the run''s role `default`, the role a model process names when it names none of its own: the one the submit named, else the daemon''s `route_policy.default`. Absent for a run that makes no model call (it has no model step: its runbook runs no agent node and no program whose per-call budget is above 0, and its decider is not a model above A0; a submit for such a run whose runbook runs programs and that named a route is admitted with none, and its first event `runbook.submitted` names that route under `model_route_not_taken` with the reason), for a run whose model calls come from its programs only that named none on a daemon with no declared `route_policy.default` or whose relay serves no run (a listener that is not loopback), and for a run of a daemon with no route. Always a route of the view Routes. Fixed at the submit; for a delegation the daemon classifies (path `classified`), set again with model_route_alias, model_route_source and model_routes when its run takes the route entries of the runbook the classifier picked, before that runbook''s first model call.'
         x-ess-relation:
           name: model_route
           kind: references

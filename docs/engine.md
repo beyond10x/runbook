@@ -413,7 +413,7 @@ none; when a cap is named and spent, the decider stops and the decision stays op
 The daemon's operator may name a gateway instead of a login: the `[gateway]` table of the `runbook.toml` the
 daemon reads, with `base_url` and, for a gateway that takes a token, `token_file` (the file holds no token:
 `gateway.token` there is refused, `docs/loom-run-settings.md` "`[gateway]`"). It is the one route `default` of
-the runs that may take a route (decider kind `model` above `A0`, or a runbook that runs a program: `docs/daemon-api.md`, "The route of a run"), whose alias is the `model` of `[deciders.model]`,
+the runs that may take a route (decider kind `model` above `A0`, or a runbook with a program that calls a model, an agent node or a per-call budget above 0: `docs/daemon-api.md`, "The route of a run"), whose alias is the `model` of `[deciders.model]`,
 until the daemon declares routes of its own (`docs/model-routes.md`, sections 1 and 11). Every model call of
 such a run goes through the daemon's relay, never to the gateway (`runbook/src/relay.rs`,
 `runbook/src/engine/route.rs`):
