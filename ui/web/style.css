@@ -1597,6 +1597,10 @@ html.daemon .gt-id { font: 650 18px var(--sans); letter-spacing: -.01em; }
 /* the tree and the run line above it */
 html.daemon .dhead { padding: 0 16px 8px; line-height: 1.5; }
 html.daemon .cid { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; font-size: 11.5px; }
+/* the root case card: the run id short on one line, then its copy control */
+html.daemon .cid.cid-run { flex: 0 1 auto; white-space: nowrap; overflow-wrap: normal; }
+.cid-copy { flex: none; height: 22px; padding: 0 6px; font-size: 10.5px; margin-right: auto; }
+html.phone .cid-copy { min-width: 44px; min-height: 44px; }
 html.daemon .proto { width: auto; overflow: visible; }
 /* the run's events, in words */
 html.daemon .fd-row { --c-rgb: 139, 147, 163; }
