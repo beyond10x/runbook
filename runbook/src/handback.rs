@@ -6,15 +6,17 @@
 //! default). A delegation names one by its name, never by a path. When its run starts, the daemon makes the run's
 //! worktree T with the host's `worktree` command at the entry's base, as it was resolved at the submit; the agent node
 //! of the protocol `delegation-change` works in T. When the run's outcome is `delivered`, the daemon commits T's change
-//! under the entry's identity and pushes it as the new ref `refs/heads/runbook/<run-id>`: no force, never a path of the
-//! entry's `deny_paths`, never when T's `.git` file differs from the one it was made with. Then it finishes T. A run that
-//! ends any other way pushes nothing and keeps T.
+//! under the entry's identity and pushes it as the new ref `refs/heads/runbook/<run-id>`: no force, never over a branch
+//! of that name, never a path of the entry's `deny_paths` or a link out of T, never when T's `.git` file differs from
+//! the one it was made with, never after a cancel. Then it finishes T. A run that ends any other way pushes nothing and
+//! keeps T.
 //!
 //! Every git call of the daemon runs with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `/dev/null` as git's
-//! script directory (no script of the repository runs), no credential helper and no prompt: the operator's identity, scripts
-//! and credentials are never used. The push
-//! credential is the entry's `push_token_file`, read by the `runbook` binary as git's askpass
-//! ([`ASKPASS_VARIABLE`], [`askpass`]): the token is in no argument, no variable, no log and no file of the run.
+//! script directory (no script of the repository runs), no credential helper and no prompt, and is killed after
+//! [`CALL_SECONDS`]: the operator's identity, scripts and credentials are never used. The push runs from a bare
+//! repository of the daemon's own, so the checkout's configuration does not steer it either. The push credential is the
+//! entry's `push_token_file`, read by the `runbook` binary as git's askpass ([`ASKPASS_VARIABLE`], [`askpass`]) for the
+//! remote's host only: the token is in no argument, no variable, no log and no file of the run.
 
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -28,6 +30,13 @@ pub const REPOSITORIES: &str = "repositories";
 pub const WORKTREE_VARIABLE: &str = "RUNBOOK_WORKTREE";
 /// The variable that makes the `runbook` binary git's askpass: the path of the entry's token file.
 pub const ASKPASS_VARIABLE: &str = "RUNBOOK_ASKPASS_FILE";
+/// The variable that names the one origin (`https://<host>`) the askpass answers the token for.
+pub const ASKPASS_ORIGIN_VARIABLE: &str = "RUNBOOK_ASKPASS_ORIGIN";
+/// The run event the daemon writes right before its push, while the run is still live: the repository, the branch and
+/// the commit. A cancel accepted after it does not stop the push.
+pub const PUSHING_EVENT: &str = "runbook.pushing";
+/// The most seconds one git or `worktree` call of the daemon takes before it is killed.
+pub const CALL_SECONDS: u64 = 120;
 /// The user name the askpass answers: a token is the password of any user on the forges this slice pushes to.
 pub const ASKPASS_USER: &str = "x-access-token";
 /// The run event of a hand-back that pushed: the repository, the branch, the commit and the base.
@@ -84,22 +93,44 @@ fn plain_revision(text: &str) -> bool {
     !text.starts_with('-') && !text.contains("..") && text.bytes().all(|b| b.is_ascii_graphic() && !matches!(b, b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\'))
 }
 
-/// A remote the daemon pushes to: `https://host/...` with no user or password, or `file:///path`.
+/// A remote the daemon pushes to: `https://host/...` or `file:///path`, with no `@` anywhere (a user or a password
+/// hides behind one, also after a third slash, which git's transport reads as the host's).
 fn plain_remote(text: &str) -> bool {
-    let rest = text.strip_prefix("https://").or_else(|| text.strip_prefix("file://"));
-    match rest {
-        Some(rest) => {
-            let authority = rest.split('/').next().unwrap_or("");
-            !authority.contains('@') && text.bytes().all(|b| b.is_ascii_graphic())
-        }
-        None => false,
+    if text.contains('@') || !text.bytes().all(|b| b.is_ascii_graphic()) {
+        return false;
     }
+    if let Some(rest) = text.strip_prefix("https://") {
+        return !rest.split('/').next().unwrap_or("").is_empty();
+    }
+    text.strip_prefix("file://").is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// A path of `deny_paths`: relative, inside the tree, no `..`.
+/// The scheme and host of an `https://` remote: the one origin the askpass answers the token for.
+fn origin(remote: &str) -> Option<String> {
+    let rest = remote.strip_prefix("https://")?;
+    Some(format!("https://{}", rest.split('/').next().unwrap_or("")))
+}
+
+/// A path of `deny_paths` as git names a path: relative, segments joined by one `/`, no `.` or `..`, at most one
+/// trailing `/`.
 fn plain_path(text: &str) -> bool {
-    let p = Path::new(text.trim_end_matches('/'));
-    !text.trim_end_matches('/').is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
+    let t = text.strip_suffix('/').unwrap_or(text);
+    !t.is_empty() && t.split('/').all(|s| !s.is_empty() && s != "." && s != "..")
+}
+
+/// Whether a link at `path` (relative to T) whose target is `target` leads out of T: an absolute target, or one whose
+/// `..` climbs above T's root.
+fn leaves_tree(path: &str, target: &Path) -> bool {
+    let mut depth = path.split('/').count().saturating_sub(1);
+    for c in target.components() {
+        match c {
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+            Component::ParentDir if depth > 0 => depth -= 1,
+            _ => return true,
+        }
+    }
+    false
 }
 
 impl Repositories {
@@ -127,7 +158,7 @@ impl Repositories {
             }
             let remote = text_of(entry, &at, "remote", true)?.unwrap_or_default();
             if !plain_remote(&remote) {
-                return Err(format!("{at}.remote: an https:// or file:// URL with no user or password (the credential is push_token_file)"));
+                return Err(format!("{at}.remote: an https://<host>/ or file:/// URL with no user, password or '@' in it (the credential is push_token_file)"));
             }
             let default_branch = text_of(entry, &at, "default_branch", true)?.unwrap_or_default();
             if !plain_revision(&default_branch) || default_branch.starts_with("runbook/") {
@@ -210,13 +241,51 @@ fn git() -> Command {
     c
 }
 
-fn output(mut c: Command, what: &str) -> Result<Vec<u8>, String> {
-    let o = c.output().map_err(|e| format!("{what}: git could not be started ({})", e.kind()))?;
-    if o.status.success() {
-        Ok(o.stdout)
-    } else {
-        Err(format!("{what}: {}", said(&o.stderr)))
+/// Runs `c` in a process group of its own and kills the group after [`CALL_SECONDS`]: its stdout, or why it failed.
+fn bounded(mut c: Command) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+    c.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
+    let mut child = c.spawn().map_err(|e| format!("the program could not be started ({})", e.kind()))?;
+    let (mut out, mut err) = (child.stdout.take(), child.stderr.take());
+    let out = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(o) = out.as_mut() {
+            let _ = o.read_to_end(&mut b);
+        }
+        b
+    });
+    let err = std::thread::spawn(move || {
+        let mut b = Vec::new();
+        if let Some(e) = err.as_mut() {
+            let _ = e.read_to_end(&mut b);
+        }
+        b
+    });
+    let until = Instant::now() + Duration::from_secs(CALL_SECONDS);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(s)) => break Some(s),
+            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(10)),
+            _ => {
+                // SAFETY: a plain kill(2) of the child's own process group; no memory is shared.
+                unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL) };
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+    match status {
+        Some(s) if s.success() => Ok(out),
+        Some(_) => Err(said(&err)),
+        None => Err(format!("killed after {CALL_SECONDS} s")),
     }
+}
+
+fn output(c: Command, what: &str) -> Result<Vec<u8>, String> {
+    bounded(c).map_err(|why| format!("{what}: {why}"))
 }
 
 /// The commit `entry.base` names in the entry's checkout, read at the submit.
@@ -270,12 +339,9 @@ pub fn branch(run_id: &str) -> String {
 }
 
 fn worktree(args: &[&str]) -> Result<Vec<u8>, String> {
-    let o = Command::new("worktree").args(args).stdin(Stdio::null()).output().map_err(|e| format!("worktree {}: the command could not be started ({})", args[0], e.kind()))?;
-    if o.status.success() {
-        Ok(o.stdout)
-    } else {
-        Err(format!("worktree {}: {}", args[0], said(&o.stderr)))
-    }
+    let mut c = Command::new("worktree");
+    c.args(args);
+    bounded(c).map_err(|why| format!("worktree {}: {why}", args[0]))
 }
 
 /// Makes the run's worktree of `entry` at `base` with the host's `worktree` command, takes its lease and records it in
@@ -329,9 +395,11 @@ fn denied<'a>(deny: &'a [String], path: &str) -> Option<&'a str> {
 }
 
 /// The hand-back of a run whose outcome is `delivered`: T's change committed under the entry's identity on the base and
-/// pushed as `refs/heads/runbook/<run-id>`, a new ref only. `Err` is why
-/// nothing was pushed: T's `.git` file changed, no change, a denied path, or git's own words.
-pub fn hand_back(entry: &Repository, run_id: &str, tree: &Tree) -> Result<Handed, String> {
+/// pushed as `refs/heads/runbook/<run-id>`, a new ref only (a branch of that name on the remote refuses the push).
+/// `scratch` is the run's directory, where the daemon's push repository is made and removed again. `before_push` is
+/// asked right before the push and refuses it when the run is no longer live. `Err` is why nothing was pushed: T's
+/// `.git` file changed, no change, a denied path, a link out of T, the branch exists, a cancel, or git's own words.
+pub fn hand_back(entry: &Repository, run_id: &str, tree: &Tree, scratch: &Path, before_push: &dyn Fn(&Handed) -> bool) -> Result<Handed, String> {
     let git_file = std::fs::symlink_metadata(tree.path.join(".git")).ok().filter(std::fs::Metadata::is_file).and_then(|_| std::fs::read_to_string(tree.path.join(".git")).ok());
     if git_file.as_deref() != Some(tree.git_file.as_str()) {
         return Err("the worktree's .git file was changed by the run: the hand-back takes no tree whose .git the run changed".to_owned());
@@ -351,14 +419,21 @@ pub fn hand_back(entry: &Repository, run_id: &str, tree: &Tree) -> Result<Handed
     if paths.is_empty() {
         return Err("no change: the run changed no file of the worktree".to_owned());
     }
-    let mut refused: Vec<String> = Vec::new();
-    for p in &paths {
-        if let Some(d) = denied(&entry.deny_paths, p) {
-            refused.push(format!("{p} (denied by {d})"));
-        }
-    }
+    let cut = |text: String| -> String { text.chars().take(REASON_LIMIT).collect() };
+    let refused: Vec<String> = paths.iter().filter_map(|p| denied(&entry.deny_paths, p).map(|d| format!("{p} (denied by {d})"))).collect();
     if !refused.is_empty() {
-        return Err(format!("deny_paths: the change touches {}", refused.join(", ")));
+        return Err(cut(format!("deny_paths: the change touches {}", refused.join(", "))));
+    }
+    let links: Vec<&str> = paths
+        .iter()
+        .filter(|p| {
+            let at = tree.path.join(p);
+            std::fs::symlink_metadata(&at).is_ok_and(|m| m.file_type().is_symlink()) && std::fs::read_link(&at).map_or(true, |target| leaves_tree(p, &target))
+        })
+        .map(String::as_str)
+        .collect();
+    if !links.is_empty() {
+        return Err(cut(format!("links: the change adds a link that leads out of the worktree: {}", links.join(", "))));
     }
     let mut commit = in_tree();
     commit.arg("-c").arg(format!("user.name={}", entry.commit_name)).arg("-c").arg(format!("user.email={}", entry.commit_email));
@@ -373,16 +448,54 @@ pub fn hand_back(entry: &Repository, run_id: &str, tree: &Tree) -> Result<Handed
     if String::from_utf8_lossy(&output(parent, "commit")?).trim() != tree.base {
         return Err("commit: the commit's parent is not the run's base".to_owned());
     }
-    let branch = branch(run_id);
-    let mut push = in_tree();
-    if let Some(file) = &entry.push_token_file {
-        let exe = std::env::current_exe().map_err(|e| format!("push: the daemon's own program for the askpass ({})", e.kind()))?;
-        push.env("GIT_ASKPASS", exe).env(ASKPASS_VARIABLE, file);
-    }
-    push.args(["push", "--quiet", "--no-verify", &entry.remote, &format!("{sha}:refs/heads/{branch}")]);
+    let handed = Handed { branch: branch(run_id), commit: sha };
+    // The push runs from a repository of the daemon's own beside the run's record: no configuration but the daemon's
+    // (the checkout's own, with its URL rewrites, push URLs and http settings, is never read), the checkout's objects
+    // through an alternate.
+    let pusher = scratch.join("handback-push.git");
+    let _ = std::fs::remove_dir_all(&pusher);
+    let pushed = push_from(entry, tree, &pusher, &handed, before_push);
+    let _ = std::fs::remove_dir_all(&pusher);
     // git names the remote in its words: the reason says <remote>, never a URL or a path of the host
-    output(push, "push").map_err(|why| why.replace(&entry.remote, "<remote>").replace(entry.remote.trim_start_matches("file://"), "<remote>"))?;
-    Ok(Handed { branch, commit: sha })
+    pushed.map_err(|why| why.replace(&entry.remote, "<remote>").replace(entry.remote.trim_start_matches("file://"), "<remote>"))?;
+    Ok(handed)
+}
+
+fn push_from(entry: &Repository, tree: &Tree, pusher: &Path, handed: &Handed, before_push: &dyn Fn(&Handed) -> bool) -> Result<(), String> {
+    let mut init = git();
+    init.args(["init", "--quiet", "--bare", "--template="]).arg(pusher);
+    output(init, "push")?;
+    let common = match std::fs::read_to_string(tree.git_dir.join("commondir")) {
+        Ok(dir) if Path::new(dir.trim()).is_absolute() => PathBuf::from(dir.trim()),
+        Ok(dir) => tree.git_dir.join(dir.trim()),
+        Err(_) => tree.git_dir.clone(),
+    };
+    let objects = std::fs::canonicalize(common.join("objects")).map_err(|e| format!("push: the checkout's objects ({})", e.kind()))?;
+    std::fs::write(pusher.join("objects/info/alternates"), format!("{}\n", objects.display())).map_err(|e| format!("push: the alternate ({})", e.kind()))?;
+    let exe = match entry.push_token_file {
+        Some(_) => Some(std::env::current_exe().map_err(|e| format!("push: the daemon's own program for the askpass ({})", e.kind()))?),
+        None => None,
+    };
+    let remote_git = || {
+        let mut c = git();
+        c.args(["-c", "http.followRedirects=false"]).arg("--git-dir").arg(pusher);
+        if let (Some(file), Some(exe)) = (&entry.push_token_file, &exe) {
+            c.env("GIT_ASKPASS", exe).env(ASKPASS_VARIABLE, file).env(ASKPASS_ORIGIN_VARIABLE, origin(&entry.remote).unwrap_or_default());
+        }
+        c
+    };
+    let target = format!("refs/heads/{}", handed.branch);
+    let mut probe = remote_git();
+    probe.args(["ls-remote", "--refs", &entry.remote, &target]);
+    if !output(probe, "push")?.is_empty() {
+        return Err(format!("push: the branch {} exists already on the remote; the hand-back only makes a new branch", handed.branch));
+    }
+    if !before_push(handed) {
+        return Err("cancelled: the run was cancelled before its push; nothing was pushed".to_owned());
+    }
+    let mut push = remote_git();
+    push.args(["push", "--quiet", "--no-verify", &entry.remote, &format!("{}:{target}", handed.commit)]);
+    output(push, "push").map(|_| ())
 }
 
 /// A tree whose change was pushed is finished (`worktree finish`) and removed (`worktree gc --apply`), after its lease
@@ -392,6 +505,17 @@ pub fn finish(entry: &Repository, run_id: &str) -> bool {
     worktree(&["finish", &id]).is_ok() && worktree(&["gc", "--apply", "--repo", &entry.path.display().to_string(), "--id", &id]).is_ok()
 }
 
+/// Whether git's prompt (`Username for 'https://host': `, `Password for 'https://user@host': `) asks for `origin`
+/// (`https://<host>`), the user left out.
+fn asks_origin(prompt: &str, origin: &str) -> bool {
+    let Some(host) = origin.strip_prefix("https://").filter(|h| !h.is_empty()) else { return false };
+    let Some(url) = prompt.split('\'').nth(1) else { return false };
+    let Some(rest) = url.strip_prefix("https://") else { return false };
+    let authority = rest.split('/').next().unwrap_or("");
+    let asked = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    asked == host
+}
+
 /// The `runbook` binary as git's askpass: started with [`ASKPASS_VARIABLE`] naming a token file and git's prompt as its
 /// one argument, it prints the bot user for a user name and the token for anything else. The file is checked as a
 /// route's token file is. `None`: the process is no askpass (the variable is not set).
@@ -399,7 +523,10 @@ pub fn askpass() -> Option<std::process::ExitCode> {
     use std::io::Write;
     let file = std::env::var_os(ASKPASS_VARIABLE)?;
     let prompt = std::env::args().nth(1).unwrap_or_default();
-    let answer = if prompt.trim_start().starts_with("Username") {
+    let origin = std::env::var(ASKPASS_ORIGIN_VARIABLE).unwrap_or_default();
+    let answer = if !asks_origin(&prompt, &origin) {
+        Err("the prompt names no URL of the entry's remote".to_owned())
+    } else if prompt.trim_start().starts_with("Username") {
         Ok(ASKPASS_USER.to_owned())
     } else {
         crate::routes::read_token_file(&file.to_string_lossy(), ASKPASS_VARIABLE)
@@ -444,6 +571,12 @@ mod tests {
             Repositories::declare(v.get(REPOSITORIES), Path::new("/")).unwrap_err()
         };
         assert!(swap("https://forge.invalid", "https://user:pw@forge.invalid").contains("remote"));
+        assert!(swap("https://forge.invalid", "https:///bot:pw@forge.invalid").contains("remote"), "a user and password after a third slash");
+        assert!(swap("https://forge.invalid/org/demo.git", "https:///demo.git").contains("remote"), "no host");
+        assert!(swap("https://forge.invalid/org/demo.git", "file://host/demo.git").contains("remote"), "a file URL with a host");
+        for bad in ["src//", "a/./b", "./a", "/a", "a//b/"] {
+            assert!(entry(&format!("deny_paths = [\"{bad}\"]\n")).unwrap_err().contains("deny_paths"), "{bad}");
+        }
         assert!(swap("https://forge.invalid/org/demo.git", "ssh://forge.invalid/demo").contains("remote"));
         assert!(swap("base = \"main\"", "base = \"--upload-pack=x\"").contains("base"));
         assert!(swap("default_branch = \"main\"", "default_branch = \"runbook/x\"").contains("default_branch"));
@@ -471,5 +604,27 @@ mod tests {
         assert_eq!(denied(&deny, "src/.github/x"), None);
         assert_eq!(denied(&["ci".to_owned()], "ci/x"), Some("ci"));
         assert_eq!(denied(&["ci".to_owned()], "cix"), None);
+    }
+
+    #[test]
+    fn a_link_leaves_the_tree_when_its_target_is_absolute_or_climbs_above_the_root() {
+        for (path, target) in [("a", "/etc/passwd"), ("a", "../x"), ("src/a", "../../x"), ("src/a", "./../../x"), ("src/b/a", "../../../x")] {
+            assert!(leaves_tree(path, Path::new(target)), "{path} -> {target}");
+        }
+        for (path, target) in [("a", "b"), ("src/a", "../b"), ("src/a", "./b"), ("src/b/a", "../../c/d"), ("a", "b/../c")] {
+            assert!(!leaves_tree(path, Path::new(target)), "{path} -> {target}");
+        }
+    }
+
+    #[test]
+    fn the_askpass_answers_only_for_the_host_of_the_entrys_remote() {
+        let origin = "https://forge.invalid";
+        assert!(asks_origin("Username for 'https://forge.invalid': ", origin));
+        assert!(asks_origin("Password for 'https://x-access-token@forge.invalid': ", origin));
+        for prompt in ["Password for 'https://x-access-token@elsewhere.invalid': ", "Password for 'https://forge.invalid.elsewhere.invalid': ", "Password: ", "Password for 'http://forge.invalid': "] {
+            assert!(!asks_origin(prompt, origin), "{prompt}");
+        }
+        assert!(!asks_origin("Password for 'https://forge.invalid': ", ""), "no origin named");
+        assert_eq!(super::origin("https://forge.invalid/org/demo.git"), Some(origin.to_owned()));
     }
 }

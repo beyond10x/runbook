@@ -2174,11 +2174,17 @@ impl Daemon {
             if let Some(name) = delegated.record.get("repository").filter(|v| v.is_string()) {
                 m.insert("repository".into(), name.clone());
             }
-            if let Some(e) = events.iter().rev().find(|e| e.kind == crate::handback::HANDED_BACK_EVENT) {
+            // (a run cancelled while its push ran has no event of the push's end: the branch is the one its push named)
+            let refused = events.iter().rev().find(|e| e.kind == crate::handback::REFUSED_EVENT);
+            let pushed = events.iter().rev().find(|e| e.kind == crate::handback::HANDED_BACK_EVENT).or_else(|| match refused {
+                None => events.iter().rev().find(|e| e.kind == crate::handback::PUSHING_EVENT),
+                Some(_) => None,
+            });
+            if let Some(e) = pushed {
                 m.insert("branch".into(), e.record["branch"].clone());
                 m.insert("commit".into(), e.record["commit"].clone());
             }
-            if let Some(e) = events.iter().rev().find(|e| e.kind == crate::handback::REFUSED_EVENT) {
+            if let Some(e) = refused {
                 m.insert("handback_refused".into(), e.record["reason"].clone());
             }
             m.insert("calls".into(), json!(calls));
@@ -2473,9 +2479,18 @@ impl Daemon {
 
     /// The hand-back of a run that delivered: its change committed and pushed (`crate::handback::hand_back`), the lease on its
     /// tree ended, and a tree whose change was pushed finished. The run event `runbook.handed-back` (repository, branch,
-    /// commit, base, whether the tree was finished) or `runbook.hand-back-refused` (repository, reason) records it.
-    fn hand_back(&self, run_id: &str, entry: &crate::handback::Repository, tree: &crate::handback::Tree) {
-        let handed = crate::handback::hand_back(entry, run_id, tree);
+    /// commit, base, whether the tree was finished) or `runbook.hand-back-refused` (repository, reason) records it. Right
+    /// before the push, while the run is still live and not cancelled, `runbook.pushing` (repository, branch, commit) is
+    /// written under the state's lock, so a cancel either comes first and nothing is pushed, or comes after that event,
+    /// which names the branch the push makes.
+    fn hand_back(&self, run_id: &str, entry: &crate::handback::Repository, tree: &crate::handback::Tree, run_dir: &Path, cancel: &AtomicBool) {
+        let before_push = |h: &crate::handback::Handed| {
+            !cancel.load(Ordering::SeqCst)
+                && self
+                    .record_run_event(run_id, crate::handback::PUSHING_EVENT, json!({"repository": entry.name, "branch": h.branch, "commit": h.commit}))
+                    .is_ok_and(|o| !o.is_refusal())
+        };
+        let handed = crate::handback::hand_back(entry, run_id, tree, run_dir, &before_push);
         crate::handback::release(run_id, tree);
         let _ = match handed {
             Ok(h) => {
@@ -2818,6 +2833,7 @@ impl Daemon {
             _ => None,
         };
         request.worktree = change.as_ref().map(|(_, tree)| tree.path.clone());
+        let run_dir = request.state_dir.clone();
         let sink = RunSink { daemon: self.clone(), run_id: run_id.clone(), started: AtomicBool::new(false) };
         let result = if cancel.load(Ordering::SeqCst) { Ok(Finish::Cancelled) } else { self.inner.runtime.start(request, &sink, cancel) };
         // The hand-back (`crate::handback`): after the outcome delivered the daemon commits and pushes the run's change before
@@ -2825,7 +2841,7 @@ impl Daemon {
         // run's lease on its tree ends in every case.
         if let (Some((entry, tree)), false) = (&change, self.is_stopping()) {
             if matches!(&result, Ok(Finish::Outcome(o)) if o == "delivered") {
-                self.hand_back(&run_id, entry, tree);
+                self.hand_back(&run_id, entry, tree, &run_dir, cancel);
             } else {
                 crate::handback::release(&run_id, tree);
             }

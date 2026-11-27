@@ -32,12 +32,12 @@ const BOT_EMAIL: &str = "runbook-bot@example.invalid";
 const SUMMARY: &str = "Added src/a.txt.";
 
 /// The real `git`, which the stand-ins call by path.
-fn real_git() -> PathBuf {
+pub(super) fn real_git() -> PathBuf {
     ["/usr/bin/git", "/bin/git", "/usr/local/bin/git"].iter().map(PathBuf::from).find(|p| p.is_file()).expect("no git on this host")
 }
 
 /// `git` of the test itself, with no configuration of the host.
-fn git(dir: &Path, args: &[&str]) -> String {
+pub(super) fn git(dir: &Path, args: &[&str]) -> String {
     let o = Command::new(real_git())
         .arg("-C")
         .arg(dir)
@@ -53,7 +53,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 /// `git` of the test that may fail: its stdout when it succeeded.
-fn git_ok(dir: &Path, args: &[&str]) -> Option<String> {
+pub(super) fn git_ok(dir: &Path, args: &[&str]) -> Option<String> {
     let o = Command::new(real_git()).arg("-C").arg(dir).args(args).env("RUNBOOK_NO_CONFIG", "1").env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_CONFIG_NOSYSTEM", "1").output().unwrap();
     o.status.success().then(|| String::from_utf8_lossy(&o.stdout).trim().to_owned())
 }
@@ -124,7 +124,7 @@ esac
 
 /// The stand-in `git` of the daemon: one line per call with its arguments and the variables that keep the operator's
 /// configuration and credentials out, then the real `git`.
-fn git_recorder(log: &Path) -> String {
+pub(super) fn git_recorder(log: &Path) -> String {
     format!(
         r#"#!/bin/sh
 {{ printf 'argv:'; for a in "$@"; do printf ' [%s]' "$a"; done; printf ' env: GIT_CONFIG_GLOBAL=%s GIT_CONFIG_NOSYSTEM=%s GIT_TERMINAL_PROMPT=%s GIT_ASKPASS=%s\n' "${{GIT_CONFIG_GLOBAL-}}" "${{GIT_CONFIG_NOSYSTEM-}}" "${{GIT_TERMINAL_PROMPT-}}" "${{GIT_ASKPASS-}}"; }} >> '{log}/git'
@@ -140,51 +140,51 @@ fn marker_hook(log: &Path) -> String {
     format!("#!/bin/sh\n: > '{}/hook-ran-'\"$(basename \"$0\")\"\n", log.display())
 }
 
-struct Rig {
-    h: Home,
-    l: Live,
+pub(super) struct Rig {
+    pub(super) h: Home,
+    pub(super) l: Live,
     _gw: Gateway,
     /// The entry's `path`: the operator's checkout, which the run never changes.
-    origin: PathBuf,
+    pub(super) origin: PathBuf,
     /// The entry's remote, a bare repository.
-    remote: PathBuf,
+    pub(super) remote: PathBuf,
     /// Where the stand-in `worktree` makes the trees.
-    trees: PathBuf,
+    pub(super) trees: PathBuf,
     /// The commit of the entry's `base` when the test started.
-    base: String,
+    pub(super) base: String,
 }
 
 impl Rig {
-    fn log(&self, name: &str) -> String {
+    pub(super) fn log(&self, name: &str) -> String {
         std::fs::read_to_string(self.h.log.join(name)).unwrap_or_default()
     }
 
-    fn tree(&self, run: &str) -> PathBuf {
+    pub(super) fn tree(&self, run: &str) -> PathBuf {
         self.trees.join(format!("runbook-{run}"))
     }
 
     /// The commit of `refs/heads/runbook/<run>` on the remote, if it has one.
-    fn pushed(&self, run: &str) -> Option<String> {
+    pub(super) fn pushed(&self, run: &str) -> Option<String> {
         git_ok(&self.remote, &["rev-parse", "--verify", "-q", &format!("refs/heads/runbook/{run}")])
     }
 
-    fn delegate(&self, body: Value) -> (u16, Value) {
+    pub(super) fn delegate(&self, body: Value) -> (u16, Value) {
         let r = send(self.l.addr, "POST", "/daemon/commands/delegate", &[("Content-Type", "application/json")], Some(body.to_string().as_bytes()));
         (r.status, r.json())
     }
 
     /// A delegation on the route `default` that the daemon accepts: its run id.
-    fn accepted(&self, body: Value) -> String {
+    pub(super) fn accepted(&self, body: Value) -> String {
         let (status, answer) = self.delegate(body);
         assert_eq!(status, 202, "{answer}");
         answer["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned()
     }
 
-    fn result(&self, run: &str) -> Value {
+    pub(super) fn result(&self, run: &str) -> Value {
         rows(&self.l, &format!("/daemon/views/delegation-result?run_id={run}"))[0].clone()
     }
 
-    fn until_ended(&self, run: &str) -> Value {
+    pub(super) fn until_ended(&self, run: &str) -> Value {
         let limit = Instant::now() + Duration::from_secs(40);
         loop {
             let r = self.result(run);
@@ -196,11 +196,11 @@ impl Rig {
         }
     }
 
-    fn events(&self, run: &str, kind: &str) -> Vec<Value> {
+    pub(super) fn events(&self, run: &str, kind: &str) -> Vec<Value> {
         rows(&self.l, &format!("/daemon/views/events?run_id={run}&after_position=0")).into_iter().filter(|e| e["kind"] == kind).map(|e| e["record"].clone()).collect()
     }
 
-    fn wait_for(&self, file: &str) {
+    pub(super) fn wait_for(&self, file: &str) {
         let limit = Instant::now() + Duration::from_secs(30);
         while !self.h.log.join(file).exists() {
             assert!(Instant::now() < limit, "gave up waiting for {file}");
@@ -213,7 +213,7 @@ impl Rig {
 /// repository entry `demo` (and `tables` after it), the stand-ins first on its `PATH`, and an operator's git
 /// configuration (`GIT_CONFIG_GLOBAL`) with a hook directory, a signing rule and a credential helper the daemon must
 /// not use. The entry's checkout holds hooks of its own that leave a marker when they run.
-fn rig(tag: &str, tables: &str) -> Rig {
+pub(super) fn rig(tag: &str, tables: &str) -> Rig {
     let h = home(tag);
     let base_dir = h.log.parent().unwrap().to_path_buf();
     let (origin, remote, trees, empty) = (base_dir.join("origin"), base_dir.join("remote.git"), base_dir.join("trees"), base_dir.join("empty-hooks"));
@@ -307,6 +307,13 @@ fn a_delegation_naming_a_listed_repository_pushes_its_own_branch_with_one_commit
     assert_eq!((handed[0]["branch"].clone(), handed[0]["commit"].clone(), handed[0]["base"].clone()), (json!(branch), json!(commit), json!(r.base)), "{handed:?}");
     let delegated = r.events(&run, "runbook.delegated");
     assert_eq!((delegated[0]["repository"].clone(), delegated[0]["base"].clone()), (json!("demo"), json!(r.base)), "{delegated:?}");
+    let pushing = r.events(&run, "runbook.pushing");
+    assert_eq!((pushing.len(), pushing[0]["branch"].clone(), pushing[0]["commit"].clone()), (1, json!(branch), json!(commit)), "{pushing:?}");
+    // one push, of the commit to the run's new ref, never forced (case 5)
+    let calls = r.log("git");
+    let pushes: Vec<&str> = calls.lines().filter(|l| l.contains("[push]")).collect();
+    assert_eq!(pushes.len(), 1, "{pushes:?}");
+    assert!(!pushes[0].contains("--force") && !pushes[0].contains("[+") && pushes[0].contains(&format!("[{commit}:refs/heads/{branch}]")), "{pushes:?}");
     // one commit on the base, by the entry's identity, whose change is the agent's file
     let remote = &r.remote;
     assert_eq!(git(remote, &["rev-list", "--count", &format!("{}..{commit}", r.base)]), "1");
@@ -406,7 +413,8 @@ fn a_run_that_fails_is_cancelled_or_stops_on_a_cap_pushes_nothing_and_keeps_its_
 }
 
 /// Case 5: the push never forces: when `refs/heads/runbook/<run-id>` exists on the remote before the hand-back, the
-/// push fails, the hand-back records it and the remote's ref is the one it had.
+/// hand-back asks the remote first and pushes nothing, records it, and the remote's ref is the one it had. (The push of
+/// case 1 names no `--force` and no `+`.)
 #[test]
 fn the_push_never_forces_an_existing_branch_of_the_run() {
     let r = rig("dlg-change-noforce", "");
@@ -424,11 +432,12 @@ fn the_push_never_forces_an_existing_branch_of_the_run() {
     let end = r.until_ended(&run);
     assert_eq!(end["outcome"], json!("delivered"), "{end}");
     let refused = end["handback_refused"].as_str().unwrap_or_else(|| panic!("no refusal: {end}"));
-    assert!(refused.starts_with("push"), "{refused}");
+    assert!(refused.starts_with("push") && refused.contains("exists already"), "{refused}");
     assert_eq!(r.pushed(&run), Some(theirs), "the remote's branch was moved");
-    let pushes: Vec<String> = r.log("git").lines().filter(|l| l.contains("[push]")).map(str::to_owned).collect();
-    assert_eq!(pushes.len(), 1, "{pushes:?}");
-    assert!(!pushes[0].contains("--force") && !pushes[0].contains("[+") && pushes[0].contains(&format!(":refs/heads/runbook/{run}]")), "{pushes:?}");
+    let calls = r.log("git");
+    assert!(calls.lines().any(|l| l.contains("[ls-remote]") && l.contains(&format!("[refs/heads/runbook/{run}]"))), "{calls}");
+    let pushes: Vec<&str> = calls.lines().filter(|l| l.contains("[push]")).collect();
+    assert!(pushes.is_empty(), "a push over a branch that exists: {pushes:?}");
 }
 
 /// Case 6: the daemon's git calls use none of the operator's configuration, hooks or credential helpers: each runs with
@@ -466,7 +475,8 @@ fn a_git_file_changed_by_the_model_refuses_the_hand_back() {
 
 /// The askpass of the push (design item 4): git asks the `runbook` binary itself, with `RUNBOOK_ASKPASS_FILE` naming the
 /// entry's token file, and gets the token for a password and the bot user for a user name. The token is read from the
-/// file then, never passed in an argument or a variable.
+/// file then, never passed in an argument or a variable. It answers only a prompt for the host of the entry's remote
+/// (`RUNBOOK_ASKPASS_ORIGIN`): a push that a URL rewrite or a redirect sent elsewhere gets no token.
 #[test]
 fn the_runbook_binary_answers_gits_askpass_from_the_token_file() {
     let dir = super::state::scratch("askpass");
@@ -474,12 +484,13 @@ fn the_runbook_binary_answers_gits_askpass_from_the_token_file() {
     std::fs::write(&file, format!("{PUSH_TOKEN}\n")).unwrap();
     std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
     let ask = |prompt: &str| {
-        let o = Command::new(env!("CARGO_BIN_EXE_runbook")).arg(prompt).env("RUNBOOK_ASKPASS_FILE", &file).env("RUNBOOK_NO_CONFIG", "1").output().unwrap();
+        let o = Command::new(env!("CARGO_BIN_EXE_runbook")).arg(prompt).env("RUNBOOK_ASKPASS_FILE", &file).env("RUNBOOK_ASKPASS_ORIGIN", "https://forge.invalid").env("RUNBOOK_NO_CONFIG", "1").output().unwrap();
         (o.status.code(), String::from_utf8_lossy(&o.stdout).into_owned())
     };
     assert_eq!(ask("Password for 'https://x-access-token@forge.invalid': "), (Some(0), format!("{PUSH_TOKEN}\n")));
     assert_eq!(ask("Username for 'https://forge.invalid': "), (Some(0), "x-access-token\n".to_owned()));
-    let unreadable = Command::new(env!("CARGO_BIN_EXE_runbook")).arg("Password: ").env("RUNBOOK_NO_CONFIG", "1").env("RUNBOOK_ASKPASS_FILE", dir.join("none")).output().unwrap();
+    assert_eq!(ask("Password for 'https://x-access-token@elsewhere.invalid': "), (Some(1), String::new()), "a prompt for another host");
+    let unreadable = Command::new(env!("CARGO_BIN_EXE_runbook")).arg("Password for 'https://forge.invalid': ").env("RUNBOOK_NO_CONFIG", "1").env("RUNBOOK_ASKPASS_ORIGIN", "https://forge.invalid").env("RUNBOOK_ASKPASS_FILE", dir.join("none")).output().unwrap();
     assert_ne!(unreadable.status.code(), Some(0));
     assert!(unreadable.stdout.is_empty());
 }

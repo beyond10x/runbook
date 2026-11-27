@@ -470,7 +470,7 @@ The first slice of story `a-delegation-changes-a-repository-on-its-own-branch` (
 [repositories.demo]
 path = "../demo"                      # the operator's checkout; relative to the file
 base = "main"                         # the revision a run's branch starts from
-remote = "https://forge.example/org/demo.git"   # https:// or file://, no user or password in it
+remote = "https://forge.example/org/demo.git"   # https://<host>/... or file:///..., no '@' in it
 default_branch = "main"               # never pushed to; a branch outside runbook/
 commit_name = "runbook-bot"           # the identity of the daemon's commit
 commit_email = "runbook-bot@example.invalid"
@@ -478,8 +478,10 @@ push_token_file = "demo-push-token"   # optional; relative to the file; a one-li
 deny_paths = [".github/", ".gitlab-ci.yml", ".gitmodules"]   # optional; this list is the default
 ```
 
-A key the table does not have, a remote with a user or password, a `base` or `default_branch` that is an option,
-or a `push_token_file` that is no readable one-line token refuses the start, exit 2, naming the entry and the key.
+A key the table does not have, a remote with an `@` anywhere (a user or password hides behind one, also after a
+third slash) or with no host, a `base` or `default_branch` that is an option, a `deny_paths` entry that is not a
+path as git names one (absolute, `.`, `..` or an empty segment such as `src//`), or a `push_token_file` that is
+no readable one-line token refuses the start, exit 2, naming the entry and the key.
 A file found by a program of a run (not named with `--config`) may not list repositories.
 
 - The delegation takes the path `change` and the daemon's protocol `delegation-change` (written beside
@@ -501,24 +503,34 @@ A file found by a program of a run (not named with `--config`) may not list repo
   the call into it (the call's record stays under `work/.sdc/llm/`). Its result, `result.md` of the run's
   workspace, is the model's last reply, its summary.
 - After the outcome `delivered`, and before the run ends, the daemon hands the change back: it refuses when T's
-  `.git` file differs from the one it recorded, when T holds no change, or when a changed path is in `deny_paths`
-  (a path ending in `/` denies what is under it; another path itself and what is under it). Otherwise it commits
-  T's change (`git --git-dir <recorded> --work-tree T`) as one commit on the base under `commit_name` and
-  `commit_email`, and pushes it with `git push <remote> <commit>:refs/heads/runbook/<run-id>`: no `+`, no
-  `--force`, so a branch that exists already is refused by the remote. Every git call of the daemon runs with
+  `.git` file differs from the one it recorded, when T holds no change, when a changed path is in `deny_paths`
+  (a path ending in `/` denies what is under it; another path itself and what is under it), or when the change
+  adds a symbolic link whose target is absolute or climbs above T. Otherwise it commits T's change (`git --git-dir
+  <recorded> --work-tree T`) as one commit on the base under `commit_name` and `commit_email`. It pushes from a
+  bare repository of its own in the run's directory (no configuration but the daemon's, the checkout's objects
+  through an alternate, removed after the push), so the checkout's own configuration (URL rewrites, push URLs,
+  http settings) does not steer the push. It asks the remote first (`git ls-remote`): a branch `runbook/<run-id>`
+  there already refuses the hand-back. Then it pushes with `git -c http.followRedirects=false push <remote>
+  <commit>:refs/heads/runbook/<run-id>`: no `+`, no `--force`. Every git call of the daemon runs with
   `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_TERMINAL_PROMPT=0`, `core.hooksPath=/dev/null`, no
-  credential helper and no signing: the operator's identity, hooks and credential helpers are never used. The push
-  credential is `push_token_file`: git asks the `runbook` binary itself as its askpass (`GIT_ASKPASS`, with
-  `RUNBOOK_ASKPASS_FILE` naming the file), which reads the token then; the token is in no argument, no log, no file of
-  the run and no environment of a process of the run.
+  credential helper and no signing: the operator's identity, hooks and credential helpers are never used. Each git
+  and `worktree` call is killed after 120 s, with its process group, and the hand-back is refused with that reason.
+  The push credential is `push_token_file`: git asks the `runbook` binary itself as its askpass (`GIT_ASKPASS`, with
+  `RUNBOOK_ASKPASS_FILE` naming the file and `RUNBOOK_ASKPASS_ORIGIN` the remote's `https://<host>`), which reads the
+  token then and answers only a prompt for that host; the token is in no argument, no log, no file of the run and no
+  environment of a process of the run.
+- Right before the push, under the state's lock and only while the run is live and not cancelled, the daemon writes
+  the run event `runbook.pushing` (`repository`, `branch`, `commit`). A cancel that comes before it: nothing is
+  pushed. A cancel accepted after it does not stop the push that runs; that event names the branch.
 - The run event `runbook.handed-back` (`repository`, `branch`, `commit`, `base`, `tree_finished`) or
-  `runbook.hand-back-refused` (`repository`, `reason`) records it; the run's outcome stays `delivered`. After a
-  push the daemon ends the lease (`worktree hook session-end`), then calls `worktree finish runbook-<run-id>` and
-  `worktree gc --apply --repo <path> --id runbook-<run-id>`.
+  `runbook.hand-back-refused` (`repository`, `reason`, at most 300 characters) records it; the run's outcome stays
+  `delivered`. After a push the daemon ends the lease (`worktree hook session-end`), then calls `worktree finish
+  runbook-<run-id>` and `worktree gc --apply --repo <path> --id runbook-<run-id>`.
 - A run that ends any other way (a failed step, a cancel, a cap, a runtime failure) commits and pushes nothing: the
   daemon ends the lease and keeps T for inspection.
 - The view `delegation-result` adds `repository`, and once the run delivered `branch` and `commit`, or
-  `handback_refused` (the reason). The view `catalog` lists the path `change` when the file lists a repository.
+  `handback_refused` (the reason). A run cancelled while its push ran shows the `branch` and `commit` of its
+  `runbook.pushing`. The view `catalog` lists the path `change` when the file lists a repository.
 
 Not in this slice (each comes back to the operator first): the draft merge request and any forge client or forge
 token, the level `linux` and its Loom request, the hand-back as a step the bug-fix runbook shares, a base a
