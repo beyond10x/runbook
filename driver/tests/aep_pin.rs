@@ -238,8 +238,10 @@ fn elf_interp_tells_a_static_program_from_a_dynamic_one() {
     assert!(elf_interp(b"#!/bin/sh\nexit 127\n").is_err());
 }
 
-/// The forge runs the local gate's driver step for a code change, and that step, on Linux, installs the pinned aep
-/// with a musl `sdc-conform` and takes the PATH directory of its tests from `aep-path`, ahead of the trap `aep`. The
+/// The forge runs the local gate's driver step for a code change. That step depends on `deps:driver-aep`, the one
+/// network step: on Linux it adds the musl rustup target and installs the pinned aep with a musl `sdc-conform`, each
+/// only when missing. The step itself downloads nothing: it takes the PATH directory of its tests from `aep-path` of
+/// the same musl `sdc-conform`, ahead of the trap `aep`, and stops with the install command when it finds none. The
 /// forge's own earlier step `aep-install` installs the gnu aep, which the tests no longer run.
 #[test]
 fn the_forge_and_the_local_gate_give_the_driver_tests_the_pinned_aep() {
@@ -251,12 +253,28 @@ fn the_forge_and_the_local_gate_give_the_driver_tests_the_pinned_aep() {
     let trap = fs::read_to_string(repo().join("scripts/host-tool-traps/aep")).unwrap();
     assert!(trap.contains("exit 127"), "{trap}");
     let tasks = fs::read_to_string(repo().join("Taskfile.yml")).unwrap();
-    let task = tasks.split("\n  test:driver:\n").nth(1).unwrap().split("\n  test:runbook:\n").next().unwrap();
+    let block = |name: &str| -> String {
+        let head = format!("\n  {name}:\n");
+        let rest = tasks.split(head.as_str()).nth(1).unwrap_or_else(|| panic!("Taskfile.yml has no task {name}"));
+        let lines: Vec<&str> = rest.lines().take_while(|l| !(l.starts_with("  ") && !l.starts_with("   "))).collect();
+        format!("\n{}\n", lines.join("\n"))
+    };
+    let deps = block("deps:driver-aep");
+    assert!(deps.contains("musl=$(uname -m)-unknown-linux-musl"), "the deps task takes the musl target of this host: {deps}");
+    assert!(deps.contains("rustup target add \"$musl\""), "the deps task adds the musl target where it is missing: {deps}");
+    assert!(deps.contains("--target $musl --bin sdc-conform --"), "the deps task runs a musl sdc-conform: {deps}");
+    assert!(deps.contains("$conform aep-install ||"), "the deps task installs the pinned aep with it: {deps}");
+    assert!(deps.contains("$conform aep-path"), "the deps task checks the installed aep against the pin: {deps}");
+
+    let task = block("test:driver");
+    assert!(task.contains("\n    deps: [deps:driver-aep]\n"), "test:driver depends on the deps task: {task}");
     assert!(task.contains("musl=$(uname -m)-unknown-linux-musl"), "the step takes the musl target of this host: {task}");
-    assert!(task.contains("rustup target add \"$musl\""), "the step adds the musl target where it is missing: {task}");
     assert!(task.contains("--target $musl --bin sdc-conform --"), "the step runs a musl sdc-conform: {task}");
-    assert!(task.contains("$conform aep-install"), "the step installs the pinned aep with it: {task}");
     assert!(task.contains("$conform aep-path"), "{task}");
+    assert!(task.contains("task deps:driver-aep"), "the step stops with the install command: {task}");
+    for net in ["rustup target add", "aep-install ||", "aep-install\n", "curl"] {
+        assert!(!task.contains(net), "the test step makes no network request ({net:?}): {task}");
+    }
     assert!(task.contains("PATH=\"$aep_dir:$trap_dir:$PATH\""), "{task}");
 }
 

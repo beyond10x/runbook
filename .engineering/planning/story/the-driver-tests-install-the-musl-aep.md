@@ -5,7 +5,7 @@ kind: story
 status: active
 title: The driver tests install the musl aep on every Linux host
 summary: task test:driver builds sdc-conform for <arch>-unknown-linux-musl and runs the static aep it installs, so a host with glibc older than 2.39 runs the step
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T16:25:13Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T16:25:14Z", actor: "agent:runbook", revision: 3}
@@ -29,9 +29,12 @@ The operator session, 2026-11-27: the story is this repository's. `task test:dri
 
 - `task test:driver` passes on a host with glibc older than 2.39.
 - On Linux the step runs `sdc-conform` built for `<arch>-unknown-linux-musl` (`cargo run --target
-  <arch>-unknown-linux-musl --bin sdc-conform`); it adds that rustup target when it is missing, installs the pinned
-  aep with that program when `aep-path` finds none (`aep-install`), and puts the directory `aep-path` names,
+  <arch>-unknown-linux-musl --bin sdc-conform`) and puts the directory its `aep-path` names,
   `<cache>/<version>/<arch>-unknown-linux-musl/`, first on the `PATH` of the tests.
+- The step depends on the task `deps:driver-aep`, its only network step (the coordinator's decision D12,
+  2026-11-27): it adds that rustup target when it is missing and installs the pinned aep with that program when
+  `aep-path` finds none (`aep-install`), and makes no request when both are present. The step and its tests make no
+  network request: without the pinned aep the step stops with the install command.
 - The aep the driver tests run is static: `file` and `ldd` of the installed aep say static, and the case
   `aep_pin::the_aep_the_driver_tests_run_is_static` fails when the first `aep` on the tests' `PATH` has a
   `PT_INTERP` program header (red on the step before this story with the gnu aep).

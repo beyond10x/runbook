@@ -26,8 +26,10 @@ before the change.
 On Linux that `sdc-conform` is a static build for `<arch>-unknown-linux-musl` (`cargo run --target
 <arch>-unknown-linux-musl --bin sdc-conform`), so it names the pin's static musl aep, which needs no glibc: the gnu aep
 of aep 0.81.0 needs glibc 2.39 or newer and does not start on an older host (story
-`the-driver-tests-install-the-musl-aep`). The step adds the rustup target when `rustup target list --installed` lacks
-it, and runs `aep-install` when `aep-path` finds no pinned aep; both fetch once per host, before any test. The driver
+`the-driver-tests-install-the-musl-aep`). `test:driver` depends on `deps:driver-aep`, which adds the rustup target when
+`rustup target list --installed` lacks it and runs `aep-install` when `aep-path` finds no pinned aep. `deps:driver-aep`
+is the only network step; `test:driver` and its tests make no network request, and without the pinned aep the step
+stops with the install command, `task deps:driver-aep`. The driver
 crate has no C code, so the build needs no `musl-tools`: rustup and the host's C compiler as linker are the
 prerequisites, here and on the forge's runner, whose earlier step installs the gnu aep the tests no longer run. The
 case `aep_pin::the_aep_the_driver_tests_run_is_static` fails when the first `aep` on the tests' `PATH` asks for a
