@@ -21,11 +21,21 @@ pub fn plain(name: &str) -> bool {
     !name.is_empty() && !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
+/// Why `name` is no runbook name: not [`plain`], or ending in `.routes`, whose bindings file `bindings/<x>.routes.yaml`
+/// is the name of the route entries of the runbook `<x>` (`crate::admission::file_name`).
+pub fn name_refusal(name: &str) -> Option<String> {
+    if !plain(name) {
+        return Some(format!("{name:?} is not a runbook name"));
+    }
+    let base = name.strip_suffix(".routes").filter(|b| !b.is_empty())?;
+    Some(format!("{name:?} is not a runbook name: its bindings file bindings/{name}.yaml is the name of the route entries of the runbook {base}"))
+}
+
 /// The runbook `name` (at `version`, when one is asked for: the root protocol's revision) under
 /// `home`, or why it is not there.
 pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolved, String> {
-    if !plain(name) {
-        return Err(format!("{name:?} is not a runbook name"));
+    if let Some(why) = name_refusal(name) {
+        return Err(why);
     }
     let protocol_dir = home.join("protocol");
     let file = protocol_dir.join(format!("{name}.protocol.yaml"));
@@ -52,8 +62,8 @@ pub fn resolve(home: &Path, name: &str, version: Option<&str>) -> Result<Resolve
 /// two homes is refused by its name, never taken from the configured one); the last home when none has it, so
 /// that `resolve` says why.
 pub fn home_of(homes: &[PathBuf], name: &str) -> Result<PathBuf, String> {
-    if !plain(name) {
-        return Err(format!("{name:?} is not a runbook name"));
+    if let Some(why) = name_refusal(name) {
+        return Err(why);
     }
     match crate::runbooks::locate(homes, name)? {
         Some(home) => Ok(home),
@@ -124,4 +134,36 @@ pub fn idea_document(intake: &str) -> String {
     let mut m = serde_yaml::Mapping::new();
     m.insert("text".into(), intake.into());
     serde_yaml::to_string(&serde_yaml::Value::Mapping(m)).unwrap_or_else(|_| format!("text: {intake:?}\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A runbook home under the build's target directory holding the runbook `name` (protocol and bindings).
+    fn home_with(tag: &str, name: &str) -> PathBuf {
+        let exe = std::env::current_exe().unwrap();
+        let home = exe.parent().unwrap().parent().unwrap().join("runbook-test-tmp").join(format!("layout-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(home.join("protocol")).unwrap();
+        std::fs::create_dir_all(home.join("bindings")).unwrap();
+        std::fs::write(home.join("protocol").join(format!("{name}.protocol.yaml")), "protocol:\n  id: deploy\n  revision: 1\n").unwrap();
+        std::fs::write(home.join("bindings").join(format!("{name}.yaml")), "format: loom.bindings/1\nactions: []\n").unwrap();
+        home
+    }
+
+    /// `bindings/<x>.routes.yaml` is the route entries of the runbook `<x>` (`crate::admission`): a runbook named
+    /// `<x>.routes` would have its bindings file read as them, so the name is refused, naming the collision.
+    #[test]
+    fn a_runbook_name_that_ends_in_routes_is_refused_naming_the_collision_with_route_entries() {
+        let home = home_with("routes-name", "deploy.routes");
+        let why = resolve(&home, "deploy.routes", None).expect_err("the name is taken");
+        assert_eq!(why, "\"deploy.routes\" is not a runbook name: its bindings file bindings/deploy.routes.yaml is the name of the route entries of the runbook deploy");
+        assert_eq!(home_of(std::slice::from_ref(&home), "deploy.routes"), Err(why));
+        assert!(list(&home).is_empty());
+        let home = home_with("plain-name", "deploy.route");
+        assert!(resolve(&home, "deploy.route", None).is_ok());
+        let _ = std::fs::remove_dir_all(home.parent().unwrap().join(format!("layout-routes-name-{}", std::process::id())));
+        let _ = std::fs::remove_dir_all(&home);
+    }
 }
