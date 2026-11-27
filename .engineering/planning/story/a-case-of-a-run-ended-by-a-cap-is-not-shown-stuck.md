@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:a-case-of-a-run-ended-by-a-cap-is-not-shown-stuck
 kind: story
-status: draft
+status: active
 title: A case of a run ended by a cap is not shown as stuck
 summary: The cases view lists the open case of a run ended by its spend or call cap as Stuck, because the one-step BudgetSpent line is its last stop.
 relations:
 - depends_on: story:a-budget-stop-in-a-running-run-is-named
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T06:41:05Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T06:41:05Z", actor: "agent:runbook", revision: 3}
 ---
 # A case of a run ended by a cap is not shown as stuck
 
