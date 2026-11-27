@@ -243,29 +243,43 @@ pub fn context_roots(file: &[PathBuf], option: &[PathBuf]) -> Result<(Vec<PathBu
     for (path, source) in named {
         let refuse = |why: String| format!("{} {}: {why}", source.key(), path.display());
         let line = format!("context root {} ({})", path.display(), source.said());
-        let line = match std::fs::metadata(path) {
-            Ok(m) if !m.is_dir() => return Err(refuse("is not a directory".to_owned())),
-            Ok(m) => {
-                let mode = m.mode() & 0o7777;
-                if mode & 0o022 != 0 {
-                    return Err(refuse(format!("is writable by group or others (mode {mode:04o}): `chmod go-w` it, or name another directory")));
-                }
-                if mode & 0o077 != 0 {
-                    format!("{line} has mode {mode:04o}, wider than 0700: it is not changed")
-                } else {
-                    line
-                }
-            }
+        // Only a root this call makes itself is "created": its last part is made without the recursive builder, so a
+        // directory that is there already (reached through `missing/..`, or made by another process meanwhile) is checked
+        // below as an existing root.
+        let mut created = false;
+        match std::fs::metadata(path) {
+            Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path).map_err(|e| refuse(format!("cannot be created: {e}")))?;
-                format!("{line}: created with mode 0700")
+                let cannot = |e: std::io::Error| refuse(format!("cannot be created: {e}"));
+                if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent).map_err(cannot)?;
+                }
+                match std::fs::DirBuilder::new().mode(0o700).create(path) {
+                    Ok(()) => created = true,
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(e) => return Err(cannot(e)),
+                }
             }
             Err(e) => return Err(refuse(e.to_string())),
-        };
+        }
+        // Every check runs on what the path resolves to now, whether this call made it or not.
         let canon = std::fs::canonicalize(path).map_err(|e| refuse(e.to_string()))?;
-        if !canon.is_dir() {
+        let m = std::fs::metadata(&canon).map_err(|e| refuse(e.to_string()))?;
+        if !m.is_dir() {
             return Err(refuse("is not a directory".to_owned()));
         }
+        let mode = m.mode() & 0o7777;
+        if mode & 0o022 != 0 {
+            return Err(refuse(format!("is writable by group or others (mode {mode:04o}): `chmod go-w` it, or name another directory")));
+        }
+        std::fs::read_dir(&canon).map_err(|e| refuse(format!("cannot be read: {e}")))?;
+        let line = if created {
+            format!("{line}: created with mode {mode:04o}")
+        } else if mode & 0o077 != 0 {
+            format!("{line} has mode {mode:04o}, wider than 0700: it is not changed")
+        } else {
+            line
+        };
         if !roots.contains(&canon) {
             roots.push(canon);
         }
