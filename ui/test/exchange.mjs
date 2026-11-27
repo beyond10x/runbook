@@ -17,18 +17,21 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const SOURCE = path.join(here, 'exchange.rs');
 const firstLine = (text) => String(text || '').trim().split('\n')[0] || '(no output)';
 
-// The path of the built helper. A worker that finds it built reads it; workers that build at once each write their own
-// file and rename it into place, so no worker runs a half-written one.
+// The path of the built helper. A worker that finds it built reads it; workers that build at once each build in a
+// directory of their own (rustc names its object files after the output's stem, so two builds in one directory
+// overwrite each other's) and rename the file into place, so no worker runs a half-written one.
 export function exchanger() {
   const digest = crypto.createHash('sha256').update(fs.readFileSync(SOURCE)).digest('hex').slice(0, 16);
   const bin = path.resolve(here, '..', 'target', 'exchange', digest, 'exchange');
   if (fs.existsSync(bin)) return bin;
-  fs.mkdirSync(path.dirname(bin), {recursive: true});
-  const part = `${bin}.${process.pid}`;
-  const r = spawnSync('rustc', ['--edition', '2021', '-o', part, SOURCE], {cwd: here, encoding: 'utf8'});
-  if (r.error) throw new Error(`the exchange helper of the race specs cannot be built: rustc did not start (${r.error.code})`);
-  if (r.status !== 0) throw new Error(`the exchange helper of the race specs cannot be built: rustc exited ${r.status}: ${firstLine(r.stderr)}`);
-  fs.renameSync(part, bin);
+  const own = path.join(path.dirname(bin), `build-${process.pid}`);
+  fs.mkdirSync(own, {recursive: true});
+  try {
+    const r = spawnSync('rustc', ['--edition', '2021', '-o', path.join(own, 'exchange'), SOURCE], {cwd: here, encoding: 'utf8'});
+    if (r.error) throw new Error(`the exchange helper of the race specs cannot be built: rustc did not start (${r.error.code})`);
+    if (r.status !== 0) throw new Error(`the exchange helper of the race specs cannot be built: rustc exited ${r.status}: ${firstLine(r.stderr)}`);
+    fs.renameSync(path.join(own, 'exchange'), bin);
+  } finally { fs.rmSync(own, {recursive: true, force: true}); }
   return bin;
 }
 
@@ -63,6 +66,10 @@ export async function raceExchange({dir, a, b, read, leaked, each = 100, most = 
       await new Promise((ok) => setImmediate(ok));
     }
   } finally {
+    // the helper's own process group, not only the guard: a guard signalled before it set its handlers would end alone
+    // and leave the helper exchanging, holding the pipe that `closed` waits for
+    const pid = await swapper.started;
+    if (pid) try { process.kill(-pid, 'SIGKILL'); } catch { /* gone */ }
     swapper.kill();
     await closed;
   }
