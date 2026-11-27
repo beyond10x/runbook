@@ -103,6 +103,20 @@ The installed `runbook` runs from any directory and needs no checkout (`runbook 
 commit; `runbook doctor` lists what it found and what is missing). With your own `protocol/` and `bindings/`
 directories, name them: `runbook run <name> --protocols <dir> --bindings <dir> ...`.
 
+Or take a release archive instead of building: a release tag builds two archives of such a prefix
+(`.github/workflows/release.yml`), each with a `.sha256` file, and puts them on the tag's GitHub Release:
+`runbook-<version>-x86_64-unknown-linux-gnu.tar.gz` (needs glibc) and
+`runbook-<version>-x86_64-unknown-linux-musl.tar.gz` (static: every program runs without a C library, such as in
+an `alpine` container; its `runbook` allocates through mimalloc). Check one and unpack it where the prefix should
+be; the directory holds `bin/`, `libexec/runbook/` and `share/runbook/` as the script writes them, and its `bin`
+goes on `PATH` as above:
+
+```console
+sha256sum --check runbook-<version>-<triple>.tar.gz.sha256
+tar -xzf runbook-<version>-<triple>.tar.gz
+runbook-<version>-<triple>/bin/runbook --version
+```
+
 The dry run uses an idea text you give it (`--intake`) and stub executors that write the
 artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`:
 
