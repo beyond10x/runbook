@@ -358,7 +358,7 @@ fn the_login_link_of_a_run_is_in_its_private_directory_and_is_removed_when_the_r
     assert!(status < 300, "cancel-run: {status}");
     until_state(&l, &run, &["Cancelled"]);
     let gone = Instant::now() + Duration::from_secs(10);
-    while std::fs::symlink_metadata(&link).is_ok() && Instant::now() < gone {
+    while (std::fs::symlink_metadata(&link).is_ok() || link.parent().unwrap().exists()) && Instant::now() < gone {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(std::fs::symlink_metadata(&link).is_err(), "the link is still there after the run ended");

@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:f2ecd7a8b79d4687bb37c9ba5ed124a5ad27342dc51490b48a78478657ac7ad2
+# contract digest slice-sha256/2:4e2e19c00a8a5e2bf46a18586f397fab99c6f8c24236110f25c28a9ff3f89893
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:f2ecd7a8b79d4687bb37c9ba5ed124a5ad27342dc51490b48a78478657ac7ad2
+    contract_digest: slice-sha256/2:4e2e19c00a8a5e2bf46a18586f397fab99c6f8c24236110f25c28a9ff3f89893
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -751,7 +751,7 @@ paths:
     get:
       operationId: sdc.daemon.Routes
       summary: Model routes
-      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
+      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A managed route''s row also answers what its wake cap counts on the day of the daemon''s clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent (wake_last_sent_at), the day''s last spend-ceiling answer (ceiling_refused_at) and whether a waiting run needs a wake the daemon does not send (wake_needed), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
       tags:
       - daemon
       x-ess-consistency: read_your_writes
@@ -1410,7 +1410,7 @@ components:
       additionalProperties: false
     sdc.daemon.CatalogRoute:
       title: CatalogRoute
-      description: 'A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon''s file declares of it beside its address: the prices and the wait. No address, token or token file.'
+      description: 'A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon''s file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap as the view Routes answers them. No address, token or token file.'
       x-ess-name: sdc.daemon.CatalogRoute
       x-ess-kind: struct
       type: object
@@ -1446,6 +1446,29 @@ components:
           type: integer
         start_wait_seconds:
           description: How long a run waits for the route's model to be ready; absent when the file sets none.
+          type: integer
+        wake_booked_micro_usd:
+          description: 'As in the view Routes: what the route''s wakes booked on the day of the daemon''s clock.'
+          type: integer
+        wake_cap_micro_usd:
+          description: 'As in the view Routes: the route''s wake_daily_cap_micro_usd.'
+          type: integer
+        wake_cost_micro_usd:
+          description: 'As in the view Routes: the route''s wake_cost_micro_usd.'
+          type: integer
+        wake_last_sent_at:
+          description: 'As in the view Routes: the instant of the newest wake sent for the route.'
+          type: string
+          format: date-time
+        wake_needed:
+          description: 'As in the view Routes: a run waits on the route and the daemon sends no wake for it.'
+          type: boolean
+        ceiling_refused_at:
+          description: 'As in the view Routes: the instant of the day''s newest spend-ceiling answer to a wake of the route.'
+          type: string
+          format: date-time
+        pod_booked_micro_usd:
+          description: 'As in the view Routes: what the pod''s time of the route booked on the day of the daemon''s clock.'
           type: integer
         read_at:
           description: When the daemon read the gateway for this route.
@@ -3020,7 +3043,7 @@ components:
       type: object
     sdc.daemon.Routes.Row:
       title: Model routes row
-      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
+      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them. A managed route''s row also answers what its wake cap counts on the day of the daemon''s clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent (wake_last_sent_at), the day''s last spend-ceiling answer (ceiling_refused_at) and whether a waiting run needs a wake the daemon does not send (wake_needed), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
       x-ess-name: sdc.daemon.Routes
       x-ess-kind: view-row
       type: object
@@ -3045,6 +3068,22 @@ components:
           type: integer
         tool_calling:
           type: boolean
+        wake_booked_micro_usd:
+          type: integer
+        wake_cap_micro_usd:
+          type: integer
+        wake_cost_micro_usd:
+          type: integer
+        wake_last_sent_at:
+          type: string
+          format: date-time
+        wake_needed:
+          type: boolean
+        ceiling_refused_at:
+          type: string
+          format: date-time
+        pod_booked_micro_usd:
+          type: integer
         read_at:
           type: string
           format: date-time
@@ -4489,7 +4528,7 @@ x-ess-entities:
     type: string
   sdc.daemon.CatalogRoute:
     title: CatalogRoute
-    description: 'A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon''s file declares of it beside its address: the prices and the wait. No address, token or token file.'
+    description: 'A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon''s file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap as the view Routes answers them. No address, token or token file.'
     x-ess-name: sdc.daemon.CatalogRoute
     x-ess-kind: struct
     type: object
@@ -4525,6 +4564,29 @@ x-ess-entities:
         type: integer
       start_wait_seconds:
         description: How long a run waits for the route's model to be ready; absent when the file sets none.
+        type: integer
+      wake_booked_micro_usd:
+        description: 'As in the view Routes: what the route''s wakes booked on the day of the daemon''s clock.'
+        type: integer
+      wake_cap_micro_usd:
+        description: 'As in the view Routes: the route''s wake_daily_cap_micro_usd.'
+        type: integer
+      wake_cost_micro_usd:
+        description: 'As in the view Routes: the route''s wake_cost_micro_usd.'
+        type: integer
+      wake_last_sent_at:
+        description: 'As in the view Routes: the instant of the newest wake sent for the route.'
+        type: string
+        format: date-time
+      wake_needed:
+        description: 'As in the view Routes: a run waits on the route and the daemon sends no wake for it.'
+        type: boolean
+      ceiling_refused_at:
+        description: 'As in the view Routes: the instant of the day''s newest spend-ceiling answer to a wake of the route.'
+        type: string
+        format: date-time
+      pod_booked_micro_usd:
+        description: 'As in the view Routes: what the pod''s time of the route booked on the day of the daemon''s clock.'
         type: integer
       read_at:
         description: When the daemon read the gateway for this route.
@@ -5064,6 +5126,29 @@ x-ess-entities:
       tool_calling:
         description: Whether the model calls tools, as `GET /v1/models` gave it for the alias (a boolean `tool_calling`); absent when the gateway gave nothing.
         type: boolean
+      wake_booked_micro_usd:
+        description: 'What the route''s wakes booked on the day of the daemon''s clock (UTC): those the gateway took (a 2xx answer) and those still out, the figure the cap of the next wake reads (WaitForRoute). Present for a managed route that declares wake_daily_cap_micro_usd, else absent.'
+        type: integer
+      wake_cap_micro_usd:
+        description: 'The route''s wake_daily_cap_micro_usd: what its wakes and its pod''s time may book per day. Absent when the route is not managed or declares none.'
+        type: integer
+      wake_cost_micro_usd:
+        description: 'The route''s wake_cost_micro_usd: what one wake books. Present with wake_cap_micro_usd when the file declares it.'
+        type: integer
+      wake_last_sent_at:
+        description: The instant of the newest run event `runbook.route-wake` of the route that was sent, on any day, whatever its answer. Present with wake_cap_micro_usd once a wake of the route was sent.
+        type: string
+        format: date-time
+      wake_needed:
+        description: 'True when the route''s wake is on (wake_on_submit), the phase of this row is `stopped`, a run that takes the route (or a delegation the daemon classifies, on the classifier route) is WaitingForRoute, no wake of the route is out (sent, not answered yet, its run live, also past the wait) and none may be joined (one within the route''s start_wait_seconds that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day''s cap, was answered 4xx, or the wake the run joined is past its wait. False otherwise. Present with wake_cap_micro_usd.'
+        type: boolean
+      ceiling_refused_at:
+        description: 'The instant of the newest answer `spend-ceiling` to a wake of the route on the day of the daemon''s clock: a run event `runbook.route-wake-answered`, or the daemon''s journal line `route.wake-answered` of a run closed before it came. Absent when there is none that day.'
+        type: string
+        format: date-time
+      pod_booked_micro_usd:
+        description: 'What the pod''s time of the route booked on the day of the daemon''s clock up to now at its price_per_hour_micro_usd, each run''s share, also of runs that still live: the other part of what the cap counts. A wake is not sent when wake_booked_micro_usd plus this plus wake_cost_micro_usd is above wake_cap_micro_usd. Present for a managed route that declares price_per_hour_micro_usd, else absent.'
+        type: integer
       read_at:
         description: When the daemon read the gateway for this row.
         type: string

@@ -317,6 +317,12 @@ At submit, after the route is resolved and before anything is written:
    model is still `stopped`, within the run's wait and never past it (story `a-wake-is-booked-only-when-it-succeeds`).
    The answer to a wake whose run was cancelled while it was out books the same way, and a wake out when the daemon
    was killed stays booked (decision D11).
+   The view `routes` answers the day's figures of each such route from the functions the cap reads (story
+   `the-routes-view-answers-the-days-wake-figures`): `wake_booked_micro_usd`, `wake_cap_micro_usd`,
+   `wake_cost_micro_usd`, `pod_booked_micro_usd`, `wake_last_sent_at`, `ceiling_refused_at` and `wake_needed`, true
+   while a run waits on the route read `stopped` and no wake of the route is out or may be joined (the run's wake
+   passed the cap, was answered `4xx`, or the wake it joined is past its wait). Built: `docs/daemon-api.md`, "The
+   day's figures of a route".
    The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing
@@ -398,7 +404,8 @@ At submit, after the route is resolved and before anything is written:
 - The run record names the route, the alias and the route's source (run, protocol or default).
 - Built (story `daemon-page-shows-the-route`; `docs/daemon-api.md`, "The web UI"): the run's header and the Routes
   view of the daemon's page, which reads the view `routes` at most once every 15 s. Today's calls and booked spend
-  per route are not in the view `routes` yet, and the page says so.
+  per route are not in the view `routes` yet, and the page says so. The day's wake and pod figures of a managed route
+  are (story `the-routes-view-answers-the-days-wake-figures`); the page does not show them yet.
 
 ### 7. Confinement
 

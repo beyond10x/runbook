@@ -255,6 +255,9 @@ pub struct State {
     decision_index: HashMap<String, usize>,
     events: Vec<RunEvent>,
     events_of_run: HashMap<String, Vec<usize>>,
+    /// The events `runbook.route-wake` and `runbook.route-wake-answered` of every run, by the route of their record, in
+    /// position order: the booking of a route's wakes and the view `routes` walk these, never the whole record.
+    wake_events_of_route: HashMap<String, Vec<usize>>,
     /// The answers to wakes of runs closed before them (`route.wake-answered`), in the order of the journal.
     wake_answers: Vec<WakeAnswer>,
     /// The runs this process took up (past the wait for their serial key) whose run thread has not
@@ -309,6 +312,7 @@ impl State {
             decision_index: HashMap::new(),
             events: vec![],
             events_of_run: HashMap::new(),
+            wake_events_of_route: HashMap::new(),
             wake_answers: vec![],
             taken_up: HashSet::new(),
             changes: tokio::sync::watch::channel(0).0,
@@ -491,6 +495,10 @@ impl State {
             Fact::DecisionWithdrawn { request_id } => self.decision_mut(request_id)?.state = DecisionState::Withdrawn,
             Fact::EventRecorded(event) => {
                 self.events_of_run.entry(event.run_id.clone()).or_default().push(self.events.len());
+                let wake = event.kind == crate::commands::ROUTE_WAKE || event.kind == crate::commands::ROUTE_WAKE_ANSWERED;
+                if let Some(route) = event.record["route"].as_str().filter(|_| wake) {
+                    self.wake_events_of_route.entry(route.to_owned()).or_default().push(self.events.len());
+                }
                 self.events.push(event.clone());
             }
             Fact::DaemonDraining { .. } => self.draining = true,
@@ -600,6 +608,12 @@ impl State {
     /// only, never of the whole record.
     pub fn events_of(&self, run_id: &str) -> impl Iterator<Item = &RunEvent> {
         self.events_of_run.get(run_id).into_iter().flatten().map(|i| &self.events[*i])
+    }
+
+    /// The events `runbook.route-wake` and `runbook.route-wake-answered` of `route`, of every run, in position order,
+    /// through the index of the route's wake events: a walk of those events only, never of the whole record.
+    pub fn wake_events_of(&self, route: &str) -> impl Iterator<Item = &RunEvent> {
+        self.wake_events_of_route.get(route).into_iter().flatten().map(|i| &self.events[*i])
     }
 
     /// The answers to wakes of runs closed before them (`route.wake-answered`), in the order of the journal.
