@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:the-context-copy-skips-git-and-excluded-paths
 kind: story
-status: draft
+status: active
 title: The copy of a context into a run's workspace skips .git and excluded paths, within a bound
 summary: copy_dir leaves out .git and an exclude list (target/, node_modules/ by default) and is bounded in entries and bytes
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:model-call-does-not-copy-the-tree
 - informed_by: story:daemon-takes-a-delegation
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T21:04:44Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T21:04:44Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

@@ -2698,6 +2698,7 @@ mod relative_state_directory {
             arbiter: None,
             routes: Default::default(),
             classify_threshold: None,
+            copy_rules: Default::default(),
             repositories: Default::default(),
             route_table: None,
             assets_root: None,

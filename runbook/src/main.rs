@@ -233,6 +233,7 @@ fn main() -> ExitCode {
                 }
                 args.routes = std::sync::Arc::new(routes);
                 args.classify_threshold = f.classify_threshold;
+                args.copy_rules = f.copy_rules.clone();
                 // the repositories a delegation may change: each token file is checked now, and read by the askpass at a push
                 if let Err(e) = f.repositories.check_token_files() {
                     eprintln!("runbook serve: {}", config::printable(&e));

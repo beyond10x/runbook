@@ -69,6 +69,8 @@ mod adversary_w4;
 mod bound_step;
 mod adversary_w5;
 mod serial_key;
+mod context_copy;
+mod adversary_context_copy;
 mod adversary_w6;
 mod adversary_late_call;
 mod adversary_wake_booking;

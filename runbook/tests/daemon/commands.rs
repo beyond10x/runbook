@@ -36,7 +36,7 @@ pub fn start(cfg: Config, runtime: Arc<dyn Runtime>) -> std::io::Result<Daemon> 
 
 /// The routes of these daemons: the route `default` on a stand-in gateway on loopback that is ready and lists its alias,
 /// so a delegation on it passes the readiness check of a run and runs the stub's script; nothing calls the gateway's model.
-fn routes() -> Arc<RouteTable> {
+pub(super) fn routes() -> Arc<RouteTable> {
     let gw = super::relay::gateway_listing(b"HTTP/1.1 500 X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", &["a-model"]);
     let gateways = json!({"default": {"base_url": gw.base_url}});
     let routes = json!({"default": {"gateway": "default", "model": "a-model", "kind": "hosted"}});
