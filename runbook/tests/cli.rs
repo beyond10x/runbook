@@ -11,6 +11,7 @@ mod ess_digest;
 mod exit_classes;
 mod loom_run;
 mod install;
+mod process_sample;
 mod reply_lib;
 mod test_suite;
 
