@@ -7,6 +7,9 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+- The aep pin is aep 0.81.0 (`driver/aep-pin.json`, tag `0.81.0`, commit `ff194ee2`; replaces 0.80.0), the first aep release with static Linux archives: the pin names `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` beside the four gnu and darwin archives, each with its archive and binary digests. So the `sdc-conform aep-install` of a musl build (the musl release archive, given a checkout's pin) installs the musl aep, which needs no glibc, where it installed the gnu aep (`conformance::platform_for`; `driver/tests/aep_pin.rs`, `a_musl_build_takes_the_pinned_musl_aep`). The gnu aep of 0.81.0 needs glibc 2.39 or newer. Between 0.80.0 and 0.81.0 aep changed no verb, flag or store version that Runbook calls. The ess pin (ess 0.98.0) still names no musl archive: a musl `sdc-conform ess-install` installs the gnu ess (`docs/releasing.md`, "The archives").
+
 ## [0.14.0] - 2026-11-27
 
 One entry is marked breaking: a daemon run takes a model route, named or `[route_policy] default`, only when it has a

@@ -1199,7 +1199,7 @@ fn conformance_budget_refused_starts_no_ess_command_but_the_pin_check() {
 }
 
 /// The platform of a pinned tool: a musl build takes `<arch>-unknown-linux-musl` when the pin names that platform and
-/// `<arch>-unknown-linux-gnu` when it does not (aep and ess ship no musl archive yet); a gnu build takes
+/// `<arch>-unknown-linux-gnu` when it does not (the ess pin names no musl archive); a gnu build takes
 /// `-linux-gnu` whatever the pin names, and macOS its `-apple-darwin`. This test binary is a gnu build, so
 /// `target_triple` of a pin that names both platforms says `-linux-gnu`.
 #[test]
