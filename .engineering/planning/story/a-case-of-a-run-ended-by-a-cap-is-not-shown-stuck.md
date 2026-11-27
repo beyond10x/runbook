@@ -7,7 +7,7 @@ title: A case of a run ended by a cap is not shown as stuck
 summary: The cases view lists the open case of a run ended by its spend or call cap as Stuck, because the one-step BudgetSpent line is its last stop.
 relations:
 - depends_on: story:a-budget-stop-in-a-running-run-is-named
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T06:41:05Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T06:41:05Z", actor: "agent:runbook", revision: 3}
@@ -38,3 +38,12 @@ changes what the docs promise.
 2. A case whose tree was left with no admissible move still lists as `Stuck`.
 3. A case that waits on a person still lists as waiting.
 4. `docs/daemon-api.md` and `docs/engine.md` say how a case of a run ended by a cap is shown.
+
+## Limit
+
+Acceptance 2 holds for a tree left without a move under no cap: that case lists as `Stuck`. A tree left without a
+move by the step that reaches a cap lists the cap word (`SpendCapReached`, `CallCapReached`, `WallCapReached`), like a
+tree with a move left: the engine checks the caps before it asks Loom for the next move, so no `Stuck` line exists, and
+telling the two apart needs Loom to evaluate the tree without taking a step, a call runbook does not have. The case
+`a_tree_left_without_a_move_shows_stuck_with_no_cap_near_and_the_cap_word_when_its_last_step_reached_the_cap` in
+`runbook/tests/daemon/caps.rs` holds this; `story:a-capped-runs-stuck-tree-shows-stuck` is the follow-up.

@@ -320,14 +320,11 @@ a cancel that ended with the run, or an orphaned run, leaves the case `Open`: a 
 flight marks its case `Running`. A run the daemon ended at a cap shows each case that had not ended as
 `SpendCapReached`, `CallCapReached` or `WallCapReached`, read from the run's outcome (`Cap::case_state`,
 `runbook/src/engine/gate.rs`), whatever the case's last stop: the engine gives each `run_tree` call one step, so a run
-ended at a cap between two steps leaves that step's `BudgetSpent` line last, and that case did not get stuck. Unless
-the tree has no admissible move: when a cap ends the run between two steps (the spend or call cap before the next step,
-the wall cap found spent there) the engine asks Loom once, with a raised flag of its own (`Engine::ask_next`,
-`runbook/src/engine/mod.rs`), what the tree would do next. Loom takes no step and starts no program, and writes a
-`Stopped` `Cancelled` line whose `next` names the actions it would take; a case whose last stop is that line with no
-next action shows `Stuck`, not the cap (`CaseRow::stop_next`). The run's outcome stays the cap's. The gate tests are the
-two `the_open_case*_of_a_run_the_*_cap_ended_*` cases and the three `adversary_*` cases of the story in
-`runbook/tests/daemon/caps.rs`. A read Loom refuses (a log line written at that moment) is the daemon's `503`; the
+ended at a cap between two steps leaves that step's `BudgetSpent` line last, and that case did not get stuck.
+Limit: a tree left without a move by the step that reaches a cap shows the cap word too, since telling it from a tree
+with a move left needs Loom to evaluate without a step (story `a-capped-runs-stuck-tree-shows-stuck`). The gate tests
+are the story's cases in `runbook/tests/daemon/caps.rs` (`the_open_case*_of_a_run_the_*_cap_ended_*`,
+`a_tree_left_without_a_move_shows_stuck_with_no_cap_near_*` and the `adversary_*` cases). A read Loom refuses (a log line written at that moment) is the daemon's `503`; the
 page keeps the tree it shows and reads again on the next tick. The gate tests are
 `the_cases_of_a_run_are_its_tree_with_each_case_state_and_the_tree_follows_the_run_to_its_end`,
 `a_case_whose_program_runs_is_running_while_the_run_goes_on` and

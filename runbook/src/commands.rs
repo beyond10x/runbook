@@ -2134,10 +2134,8 @@ impl Daemon {
 
     /// The view `CasesOfRun` (wire name `cases`): a row per case of the run's tree, as the runtime reads it
     /// (`Runtime::cases`), read after the state is let go. Where a case stands (`case_state`): `Ended` with an outcome;
-    /// else, when the daemon ended the run at a cap, `Stuck` if its last stop is the `Cancelled` line the engine had Loom
-    /// write as the cap ended the run and that line names no next action (the tree had no admissible move), otherwise
-    /// `SpendCapReached`, `CallCapReached` or `WallCapReached` (whatever the case's last stop: a run that ends at a cap
-    /// between two steps leaves the step's `BudgetSpent` line last when Loom refused that question); else
+    /// else `SpendCapReached`, `CallCapReached` or `WallCapReached` when the daemon ended the run at that cap (whatever
+    /// the case's last stop: a run that ends at a cap between two steps leaves the step's `BudgetSpent` line last); else
     /// `AwaitingPerson` or `AwaitingAuthority` when its last stop says so and the run waits on a decision; else
     /// `Stuck` when its last stop is `Stuck` or `BudgetSpent` and the run ended by its tree (`Ended`, not orphaned: a wait
     /// or a cancel that ended with the run, or a run the daemon orphaned, leaves the case `Open`); else `Running` when the
@@ -2157,8 +2155,6 @@ impl Daemon {
             .map(|c| {
                 let case_state = match (&c.outcome, capped, c.stop.as_deref()) {
                     (Some(_), ..) => "Ended",
-                    // the engine asked Loom for the next move as the cap ended the run: none, so the tree had no move
-                    (None, Some(_), Some("Cancelled")) if c.stop_next.is_empty() => "Stuck",
                     (None, Some(cap), _) => cap.case_state(),
                     (None, None, Some(stop @ ("AwaitingPerson" | "AwaitingAuthority"))) if state == RunState::WaitingOnDecision => stop,
                     (None, None, Some("Stuck" | "BudgetSpent")) if ended_by_its_tree => "Stuck",

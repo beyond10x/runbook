@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:03073b2f93861f1cb70289025c6a73c54b220680a926a2f97b3e1c0bb8286810
+# contract digest slice-sha256/2:4c5564c07cca3c24a83109a52c679f20e7b5494ecd72de485e5d9c8597be132a
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:03073b2f93861f1cb70289025c6a73c54b220680a926a2f97b3e1c0bb8286810
+    contract_digest: slice-sha256/2:4c5564c07cca3c24a83109a52c679f20e7b5494ecd72de485e5d9c8597be132a
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -1322,7 +1322,7 @@ components:
       type: object
     sdc.daemon.CaseState:
       title: CaseState
-      description: 'Where a case stands as the daemon reads its run''s tree: Ended when it has an outcome; else, when the daemon ended the run at a cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), Stuck when Loom, asked once as the cap ended the run, named no next action for the case (no admissible move wins over the cap), else SpendCapReached, CallCapReached or WallCapReached, whatever the case''s last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run''s step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.'
+      description: 'Where a case stands as the daemon reads its run''s tree: Ended when it has an outcome; else SpendCapReached, CallCapReached or WallCapReached when the daemon ended the run at that cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), whatever the case''s last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run''s step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.'
       x-ess-name: sdc.daemon.CaseState
       x-ess-kind: enum
       type: string
@@ -4390,7 +4390,7 @@ x-ess-entities:
     type: string
   sdc.daemon.CaseState:
     title: CaseState
-    description: 'Where a case stands as the daemon reads its run''s tree: Ended when it has an outcome; else, when the daemon ended the run at a cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), Stuck when Loom, asked once as the cap ended the run, named no next action for the case (no admissible move wins over the cap), else SpendCapReached, CallCapReached or WallCapReached, whatever the case''s last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run''s step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.'
+    description: 'Where a case stands as the daemon reads its run''s tree: Ended when it has an outcome; else SpendCapReached, CallCapReached or WallCapReached when the daemon ended the run at that cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), whatever the case''s last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run''s step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.'
     x-ess-name: sdc.daemon.CaseState
     x-ess-kind: enum
     type: string

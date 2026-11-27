@@ -487,23 +487,6 @@ impl Engine {
         }
     }
 
-    /// A cap ends the run between two steps: Loom is asked once, with a raised flag of its own, what the tree would do
-    /// next. It takes no step and starts no program; it writes a `Stopped` `Cancelled` line whose `next` names the
-    /// actions it would take, none when the tree has no admissible move (the view `cases` then shows that case `Stuck`,
-    /// not the cap). A refusal of Loom leaves the case with its step's `BudgetSpent` line: the cap's end stands.
-    fn ask_next(store: &Path, catalog: &loom_protocols::ProtocolCatalog, settings: &b10x_loom_tree::RunSettings, tail: &mut LogTail<'_>) -> Result<(), RuntimeFailure> {
-        let raised = AtomicBool::new(true);
-        let _ = {
-            let mut observer = tail.observer();
-            calls::run(store, catalog, settings, Some(&mut observer), Some(&raised))
-        };
-        tail.sync_all().map_err(failure)?;
-        match tail.failure.take() {
-            Some(f) => Err(failure(f)),
-            None => Ok(()),
-        }
-    }
-
     /// The steps of a run, one at a time, each held against the caps before and booked after.
     #[allow(clippy::too_many_arguments)]
     fn steps(
@@ -536,13 +519,11 @@ impl Engine {
             if gate.wall_over() {
                 wall_hit.store(true, Ordering::SeqCst);
                 local.store(true, Ordering::SeqCst);
-                Self::ask_next(store, catalog, &settings, tail)?;
             }
             if local.load(Ordering::SeqCst) {
                 return Ok(Self::halted(cancel, wall_hit, slot, gate, sink));
             }
             if let Some((cap, detail)) = gate.admit().map_err(failure)? {
-                Self::ask_next(store, catalog, &settings, tail)?;
                 return Ok(Finish::Outcome(gate.reached(cap, &detail, sink)));
             }
             if std::mem::take(&mut new_round) {
@@ -965,7 +946,7 @@ impl Runtime for Engine {
         Ok(status
             .cases
             .into_iter()
-            .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop, stop_next: c.stop_next })
+            .map(|c| CaseRow { case_id: c.case, parent: c.parent, name: c.name, protocol: c.protocol_id, outcome: c.outcome, stop: c.stop })
             .collect())
     }
 

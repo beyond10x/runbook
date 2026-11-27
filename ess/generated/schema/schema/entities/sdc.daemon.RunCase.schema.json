@@ -61,7 +61,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c881a23807ca5ba9c434c109ff6187c89041ef2f516fce0a703254581db29d48",
+    "contract_digest": "slice-sha256/2:d07eae21c5d11f1203cda19e08d5093d03d57cce4f920db8af9abeccbba8ef5e",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -74,7 +74,7 @@
     },
     "sdc.daemon.CaseState": {
       "title": "CaseState",
-      "description": "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else, when the daemon ended the run at a cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), Stuck when Loom, asked once as the cap ended the run, named no next action for the case (no admissible move wins over the cap), else SpendCapReached, CallCapReached or WallCapReached, whatever the case's last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.",
+      "description": "Where a case stands as the daemon reads its run's tree: Ended when it has an outcome; else SpendCapReached, CallCapReached or WallCapReached when the daemon ended the run at that cap (its outcome `stopped: spend cap`, `stopped: llm calls` or `stopped: wall time`), whatever the case's last stop; else AwaitingPerson or AwaitingAuthority when its last stop waits on that and the run waits on a decision; else Stuck when its last stop is Stuck or BudgetSpent and the run ended by its tree (Ended and not orphaned; a wait or a cancel that ended with the run, or an orphaned run, leaves it Open); else Running when the run's step in flight names the case; else Open. A type and not a lifecycle: no command moves a case, the daemon reads where it stands.",
       "x-ess-name": "sdc.daemon.CaseState",
       "x-ess-kind": "enum",
       "type": "string",

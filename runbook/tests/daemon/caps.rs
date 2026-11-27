@@ -1204,9 +1204,10 @@ fn a_check_that_fails_after_its_call(home: &Path) {
 }
 
 #[test]
-fn adversary_a_tree_left_without_a_move_by_the_step_that_spent_the_cap_still_shows_its_case_stuck() {
-    // Acceptance 2: a case whose tree was left with no admissible move still lists as `Stuck`. Here the step that
-    // leaves the tree without a move is also the step that uses the last of the cap.
+fn a_tree_left_without_a_move_shows_stuck_with_no_cap_near_and_the_cap_word_when_its_last_step_reached_the_cap() {
+    // Acceptance 2 holds for a tree left without a move under no cap. Here the step that leaves the tree without a move
+    // is also the step that uses the last of the cap.
+    // Limit: the capped runs show the cap word, as telling a stuck tree from one with a move needs Loom to evaluate without a step.
     let rig = Rig::tweaked("adv-caps-stuck-at-cap", roomy(), a_check_that_fails_after_its_call);
     // no cap near: the run ends naming the failed step, and the case is Stuck (the tree has no move)
     let free = rig.submit(RUNBOOK, None, &[]);
@@ -1218,8 +1219,8 @@ fn adversary_a_tree_left_without_a_move_by_the_step_that_spent_the_cap_still_sho
     assert_eq!(outcomes[0], json!("failed: step note.check exit 1"), "the control run: {outcomes:?}");
     assert_eq!(
         [case_lines(&rig, &free), case_lines(&rig, &spend), case_lines(&rig, &calls)],
-        [["(root) caps-demo Stuck"], ["(root) caps-demo Stuck"], ["(root) caps-demo Stuck"]],
-        "the tree has no admissible move in all three runs; outcomes {outcomes:?}"
+        [["(root) caps-demo Stuck"], ["(root) caps-demo SpendCapReached"], ["(root) caps-demo CallCapReached"]],
+        "the control run is Stuck, the capped runs name their cap; outcomes {outcomes:?}"
     );
 }
 
@@ -1334,4 +1335,86 @@ fn adversary_the_open_case_of_a_run_the_wall_cap_ended_while_its_step_ran_names_
     let run = rig.submit(RUNBOOK, Some(ctx), &[("max_wall_seconds", "1")]);
     assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: wall time");
     assert_eq!(case_lines(&rig, &run), ["(root) caps-demo WallCapReached"]);
+}
+
+// ---- adversary cases, second pass: the question the engine asks Loom as a cap ends the run ----
+
+/// The spend run of `a_check_that_fails_after_its_call` with a check that passes: write and check spend the 0.4 USD,
+/// and the publish is left. The run's events, its programs and its ledger after the cap.
+fn a_run_the_spend_cap_ended_before_its_publish(tag: &str) -> (Rig, String) {
+    let rig = Rig::tweaked(tag, roomy(), |home| {
+        let path = home.join("bindings/caps-demo.yaml");
+        let text = std::fs::read_to_string(&path).unwrap().replace("--max-budget-usd, \"0.3\"", "--max-budget-usd, \"0.2\"");
+        std::fs::write(&path, text).unwrap();
+    });
+    let run = rig.submit(RUNBOOK, None, &[("cap_micro_usd", "400000")]);
+    assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: spend cap");
+    (rig, run)
+}
+
+#[test]
+fn adversary_the_question_asked_as_the_cap_ends_the_run_starts_no_program_and_spends_nothing() {
+    let (rig, run) = a_run_the_spend_cap_ended_before_its_publish("adv-caps-ask-spends-nothing");
+    let started: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "runbook.action-started").map(|e| e["record"]["action"].clone()).collect();
+    assert_eq!(started, [json!("note.write"), json!("note.check")], "a program started after the cap");
+    assert_eq!(rig.calls_made(&run), ["001-step.write", "002-step.check"]);
+    let ledger = rig.ledger(RUNBOOK);
+    assert_eq!((ledger["spent_micro_usd"].as_u64(), ledger["reserved"].as_object().map(|r| r.len())), (Some(400_000), Some(0)), "{ledger}");
+    assert_eq!(case_lines(&rig, &run), ["(root) caps-demo SpendCapReached"]);
+}
+
+#[test]
+fn adversary_no_event_of_a_run_the_spend_cap_ended_reads_as_a_cancel() {
+    // The run page words a `Stopped` event by its stop (`ui/web/runsteps.js`, `STOP`): `Cancelled` reads "Cancelled".
+    // Nobody cancelled this run: its cap ended it.
+    let (rig, run) = a_run_the_spend_cap_ended_before_its_publish("adv-caps-no-cancel-event");
+    let cancels: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "Stopped" && e["record"]["stop"] == "Cancelled").map(|e| e["record"].clone()).collect();
+    assert!(cancels.is_empty(), "a run nobody cancelled has events that read as a cancel: {cancels:?}");
+}
+
+#[test]
+fn adversary_a_case_whose_next_move_is_a_persons_shows_the_call_cap_and_not_stuck() {
+    // `draft.check` of the engine runbook books one call here. It runs first on no draft (invalid, call 1), the write follows,
+    // then the check passes (call 2): with a call cap of 2 the run ends there, when the draft's next move is the person's review: the case waits on a person next, it has a move.
+    let rig = Rig::tweaked("adv-caps-person-next", roomy(), |home| {
+        use std::os::unix::fs::PermissionsExt;
+        let check = home.join("bindings/tools/draft-check.sh");
+        let script = "#!/bin/sh\nw=.sdc/llm\nmkdir -p \"$w/001-step.check\"\necho '{}' > \"$w/001-step.check/request.json\"\nprintf '{\"action\":\"step.check\",\"adapter\":\"stand-in\",\"exit\":0,\"cost_usd\":0.001,\"record\":\"%s/%s\"}\\n' \"$PWD/$w\" 001-step.check >> \"$w/calls.jsonl\"\n[ -s draft.txt ]\n";
+        std::fs::write(&check, script).unwrap();
+        std::fs::set_permissions(&check, std::fs::Permissions::from_mode(0o755)).unwrap();
+    });
+    // the same runbook with no call cap near waits on the person's review after the check
+    let free = rig.submit("engine-demo", None, &[]);
+    until("the run with no cap near to wait on a decision", 30, || rig.row(&free)["state"] == "WaitingOnDecision");
+    assert_eq!(case_lines(&rig, &free), ["(root) engine-demo Open", "draft engine-draft AwaitingPerson"]);
+    let run = rig.submit("engine-demo", None, &[("max_llm_calls", "2")]);
+    assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: llm calls", "{}", rig.runlog(&run));
+    // the cap ended the run after the draft's check: its last stop is that step's end, and no line reads as a cancel
+    let stops: Vec<Value> = rig.d.events_after(&run, 0).into_iter().filter(|e| e["kind"] == "Stopped").map(|e| e["record"].clone()).collect();
+    let last = stops.last().cloned().unwrap_or_default();
+    assert_eq!(last["stop"], "BudgetSpent", "{stops:?}");
+    assert!(stops.iter().all(|s| s["stop"] != "Cancelled"), "{stops:?}");
+    assert_eq!(rig.d.events_after(&run, 0).iter().filter(|e| e["kind"] == "runbook.action-started" && e["record"]["action"] == "draft.check").count(), 2, "the check ran twice");
+    assert_eq!(case_lines(&rig, &run), ["(root) engine-demo CallCapReached", "draft engine-draft CallCapReached"], "{}", rig.runlog(&run));
+}
+
+#[test]
+fn adversary_a_case_whose_last_step_met_its_outcome_as_the_call_cap_ended_the_run_is_not_stuck() {
+    // `note.publish` books one call here, so the third call is the publish, the case's last step: its outcome
+    // `finished` holds once it ran (Loom records the end at its next call). The call cap of 3 ends the run there. The
+    // case has nothing left to do because it is done, not because it got stuck.
+    let rig = Rig::tweaked("adv-caps-done-at-cap", roomy(), |home| {
+        use std::os::unix::fs::PermissionsExt;
+        let publish = home.join("bindings/tools/publish.sh");
+        let script = "#!/bin/sh\nw=.sdc/llm\nmkdir -p \"$w/003-step.publish\"\necho '{}' > \"$w/003-step.publish/request.json\"\nprintf '{\"action\":\"step.publish\",\"adapter\":\"stand-in\",\"exit\":0,\"cost_usd\":0.001,\"record\":\"%s/%s\"}\\n' \"$PWD/$w\" 003-step.publish >> \"$w/calls.jsonl\"\n[ -s note.txt ]\n";
+        std::fs::write(&publish, script).unwrap();
+        std::fs::set_permissions(&publish, std::fs::Permissions::from_mode(0o755)).unwrap();
+    });
+    // no cap near: the run finishes
+    let free = rig.submit(RUNBOOK, None, &[]);
+    assert_eq!(rig.wait_ended(&free)["outcome"], "finished");
+    let run = rig.submit(RUNBOOK, None, &[("max_llm_calls", "3")]);
+    assert_eq!(rig.wait_ended(&run)["outcome"], "stopped: llm calls", "{}", rig.runlog(&run));
+    assert_eq!(rig.calls_made(&run), ["001-step.write", "002-step.check", "003-step.publish"]);
+    assert_eq!(case_lines(&rig, &run), ["(root) caps-demo CallCapReached"], "the case met its outcome; {}", rig.runlog(&run));
 }
