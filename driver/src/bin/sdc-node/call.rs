@@ -11,6 +11,23 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// The agent node of a delegation that changes a repository (`runbook/src/handback.rs`).
+pub const CHANGE_NODE: &str = "delegation.change";
+/// The variable the daemon names the run's worktree in.
+pub const WORKTREE_VARIABLE: &str = "RUNBOOK_WORKTREE";
+
+/// The run's worktree the daemon named: an absolute path of a directory.
+fn change_tree() -> Option<PathBuf> {
+    let tree = PathBuf::from(std::env::var_os(WORKTREE_VARIABLE)?);
+    (tree.is_absolute() && tree.is_dir()).then_some(tree)
+}
+
+/// The text of the last result event of a call's `events.jsonl` (the CLI's final reply), if it has one.
+fn final_reply(rec: &Path) -> Option<String> {
+    let text = fs::read_to_string(rec.join("events.jsonl")).ok()?;
+    text.lines().rev().filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok()).find(|e| e["type"] == "result").and_then(|e| e["result"].as_str().map(str::to_owned))
+}
+
 #[derive(Serialize)]
 struct Status<'a> {
     format: &'a str,
@@ -104,9 +121,20 @@ pub fn run(c: &Ctx) -> R<i32> {
     let _ = fs::create_dir_all(&rec_root);
     let n = count_dirs(&rec_root, "") + 1;
     let rec = rec_root.join(format!("{n:03}-{}", c.node));
-    let cwd = rec.join("cwd");
-    let _ = fs::create_dir_all(cwd.join("in"));
-    let _ = fs::create_dir_all(cwd.join("out"));
+    // The agent node of a delegation that changes a repository works in the run's worktree, which the daemon names; the
+    // call writes nothing into it (no in/, no out/). Every other node works in its call's own directory.
+    let cwd = if c.node == CHANGE_NODE {
+        match change_tree() {
+            Some(tree) => tree,
+            None => return Ok(crate::util::die(format!("llm-node: {} could not run: {WORKTREE_VARIABLE} names no directory of a worktree (an absolute path)", c.node), 126).0),
+        }
+    } else {
+        let cwd = rec.join("cwd");
+        let _ = fs::create_dir_all(cwd.join("in"));
+        let _ = fs::create_dir_all(cwd.join("out"));
+        cwd
+    };
+    let _ = fs::create_dir_all(&rec);
     let started = now_utc(true);
     write_status(&rec, "running", None, &started);
     let attempt = count_dirs(&rec_root, &format!("-{}", c.node));
@@ -239,8 +267,19 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
     let prompt = rec.join("prompt.md");
     // One request: the program that makes it writes the prompt, the whole input.
     if !c.request_mode {
-        let preamble = c.render(if c.facts() { "instructions/shared/preamble-facts.md" } else { "instructions/shared/preamble.md" }, &[("node", &c.node)])?;
-        let closing = if c.node == "change.review" {
+        let preamble = c.render(
+            if c.node == CHANGE_NODE {
+                "instructions/shared/preamble-change.md"
+            } else if c.facts() {
+                "instructions/shared/preamble-facts.md"
+            } else {
+                "instructions/shared/preamble.md"
+            },
+            &[("node", &c.node)],
+        )?;
+        let closing = if c.node == CHANGE_NODE {
+            c.render("instructions/shared/closing-change.md", &[])?
+        } else if c.node == "change.review" {
             match built.review.as_ref().and_then(|r| r.doc.as_ref()) {
                 // The review input's exact bytes, the trailing newline kept: the file ends the paragraph.
                 Some(doc) => {
@@ -424,6 +463,11 @@ fn apply_copy(c: &Ctx, out: &str, rec: &Path, cwd: &Path, work: &Path, coverage:
             }
             run_cmd(Command::new(c.set.here.join("sdc-tool.sh")).args(["bugfix", "repro-install"]), sink)
         }
+        // The change is in the worktree: what goes back is the summary, the CLI's final reply, as result.md.
+        CHANGE_NODE => match final_reply(rec) {
+            Some(text) if !text.trim().is_empty() => i32::from(fs::write(work.join(out), format!("{}\n", text.trim_end())).is_err()),
+            _ => 1,
+        },
         _ => {
             if !cwd.join("out").join(out).exists() {
                 return 1;

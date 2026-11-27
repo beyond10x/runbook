@@ -17,6 +17,7 @@ pub mod refusal;
 pub mod route;
 pub mod shape;
 mod tail;
+mod worktree;
 
 pub use decision::Parsed;
 pub use gate::{Cap, WallClock};
@@ -299,7 +300,8 @@ impl Engine {
         let routes = admitted.as_ref().or(request.routes.as_ref());
         let runbook = taken.as_ref().map_or(request.runbook.as_str(), |t| t.runbook.as_str());
         let generated = taken.as_ref().is_some_and(|t| t.generated);
-        let free_run = self.free_home.is_some() && request.model_route.is_some() && runbook == crate::delegation::FREE_RUNBOOK;
+        // the free run and the change of a repository are the daemon's own runbooks, read from its home of them
+        let free_run = self.free_home.is_some() && request.model_route.is_some() && (runbook == crate::delegation::FREE_RUNBOOK || (runbook == crate::delegation::CHANGE_RUNBOOK && request.worktree.is_some()));
         let home = match (&taken, &self.free_home, &request.model_route) {
             (Some(t), _, _) => t.home.clone(),
             (None, Some(free), Some(_)) if free_run => free.clone(),
@@ -335,6 +337,10 @@ impl Engine {
         };
         if let Some(r) = &route {
             runner = route::RouteEnv::wrap(runner, r.file());
+        }
+        // A run that changes a repository: its programs are told the run's worktree, where its agent node works.
+        if let Some(tree) = &request.worktree {
+            runner = worktree::TreeEnv::wrap(runner, tree);
         }
         // A level and a kind: the arbiter answers what the level gives to the decider. A0, or neither: every
         // decision waits for a client, as it always did. A kind this engine has none for ends the run here.
@@ -1009,6 +1015,8 @@ impl Runtime for Engine {
         let copy_dir = request.state_dir.join(pin::COPY_DIR);
         let mut hidden: Vec<&Path> = vec![&copy_dir, &request.state_dir, &request.workspace_dir, &self.state_dir];
         hidden.extend(self.homes.iter().map(PathBuf::as_path));
+        // and no path of the run's worktree of a repository
+        hidden.extend(request.worktree.as_deref());
         let hide = Hide::new(&hidden);
         self.drive(&request, &HidingSink { inner: sink, hide: &hide }, cancel, &slot).map_err(|f| RuntimeFailure { reason: hide.text(&f.reason) })
     }

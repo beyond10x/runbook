@@ -23,6 +23,12 @@ pub const INSTRUCTION: &str = "instructions/delegation.free.md";
 /// Where a `result.md` that came with a delegation's workspace is moved before the run starts: a dot name, which the products
 /// leave out, so that the view `delegation-result` answers only a `result.md` the run wrote.
 pub const SET_ASIDE: &str = ".result.from-workspace.md";
+/// The runbook of a delegation that changes a repository (`crate::handback`): one agent node working in the run's worktree.
+pub const CHANGE_RUNBOOK: &str = "delegation-change";
+/// The one action of [`CHANGE_RUNBOOK`], and the agent node it runs.
+pub const CHANGE_ACTION: &str = "delegation.change";
+/// The instruction file of that agent node.
+pub const CHANGE_INSTRUCTION: &str = "instructions/delegation.change.md";
 /// The directory under the daemon's state directory the free run's home is written to.
 const HOME_DIR: &str = "delegation";
 
@@ -394,19 +400,57 @@ actions:
     )
 }
 
+const CHANGE_PROTOCOL: &str = "format: protocol/1
+protocol:
+  id: delegation-change
+  revision: 1
+  description: >-
+    A delegation that changes a repository: one agent node whose instruction is the request, on the delegation's route,
+    working in the run's worktree of the repository; its summary is result.md. The daemon commits and pushes the change
+    after the run delivered.
+artifacts:
+  idea: {}
+  result: {}
+evidence_kinds:
+  result_written: {}
+claims:
+  result.written:
+    true_when:
+      evidence: {kind: result_written, subject: result, result: written}
+actions:
+  delegation.change:
+    effect: write
+    may_produce:
+      - evidence: result_written
+outcomes:
+  delivered:
+    requires: {claim: result.written}
+";
+
+/// The bindings of [`CHANGE_RUNBOOK`]: the free run's, with the agent node `delegation.change` and its instruction.
+fn change_bindings(tools_dir: Option<&Path>) -> String {
+    bindings(tools_dir)
+        .replace("protocol: delegation-free@1", "protocol: delegation-change@1")
+        .replace(&format!("action: {FREE_ACTION}"), &format!("action: {CHANGE_ACTION}"))
+        .replace(&format!("[sdc-node, {FREE_ACTION},"), &format!("[sdc-node, {CHANGE_ACTION},"))
+        .replace(INSTRUCTION, CHANGE_INSTRUCTION)
+}
+
 /// A YAML double-quoted scalar of `text`.
 fn quoted(text: &str) -> String {
     serde_json::Value::String(text.to_owned()).to_string()
 }
 
-/// Writes the free run's home (`protocol/delegation-free.protocol.yaml`, `bindings/delegation-free.yaml`) under
-/// `state_dir` and returns it. Written at every start, so the home is the daemon's own revision.
+/// Writes the free run's home (`protocol/delegation-free.protocol.yaml`, `bindings/delegation-free.yaml`, and the same two of
+/// `delegation-change`) under `state_dir` and returns it. Written at every start, so the home is the daemon's own revision.
 pub fn install(state_dir: &Path, tools_dir: Option<&Path>) -> std::io::Result<PathBuf> {
     let home = state_dir.join(HOME_DIR);
     std::fs::create_dir_all(home.join("protocol"))?;
     std::fs::create_dir_all(home.join("bindings"))?;
     std::fs::write(home.join("protocol").join(format!("{FREE_RUNBOOK}.protocol.yaml")), PROTOCOL)?;
     std::fs::write(home.join("bindings").join(format!("{FREE_RUNBOOK}.yaml")), bindings(tools_dir))?;
+    std::fs::write(home.join("protocol").join(format!("{CHANGE_RUNBOOK}.protocol.yaml")), CHANGE_PROTOCOL)?;
+    std::fs::write(home.join("bindings").join(format!("{CHANGE_RUNBOOK}.yaml")), change_bindings(tools_dir))?;
     Ok(home)
 }
 
@@ -441,6 +485,13 @@ mod tests {
         assert_eq!(&argv[argv.len() - 2..], ["--tools-dir", "/opt/a b/bindings/tools"]);
         let protocol: serde_yaml::Value = serde_yaml::from_str(PROTOCOL).unwrap();
         assert_eq!(protocol["protocol"]["id"].as_str(), Some(FREE_RUNBOOK));
+        // the change runbook: the same agent node program on the node delegation.change with its own instruction
+        let change: serde_yaml::Value = serde_yaml::from_str(&change_bindings(Some(Path::new("/opt/tools")))).unwrap();
+        let argv: Vec<&str> = change["actions"][0]["executor"]["argv"].as_sequence().unwrap().iter().filter_map(|a| a.as_str()).collect();
+        assert_eq!((change["protocol"].as_str(), change["actions"][0]["action"].as_str(), &argv[..2]), (Some("delegation-change@1"), Some(CHANGE_ACTION), &["sdc-node", CHANGE_ACTION][..]));
+        assert!(argv.iter().any(|a| a.contains(CHANGE_INSTRUCTION)) && !argv.iter().any(|a| a.contains(INSTRUCTION)), "{argv:?}");
+        let protocol: serde_yaml::Value = serde_yaml::from_str(CHANGE_PROTOCOL).unwrap();
+        assert_eq!((protocol["protocol"]["id"].as_str(), protocol["actions"][CHANGE_ACTION].is_mapping()), (Some(CHANGE_RUNBOOK), true));
     }
 
     /// The prompts of the classify, build and retry calls on stub inputs are their goldens under

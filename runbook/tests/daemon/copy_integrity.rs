@@ -1945,8 +1945,12 @@ fn no_hook_that_changes_a_copy_or_a_run_is_reachable_from_the_product() {
                 walk(&p, hits);
             } else if p.extension().is_some_and(|x| x == "rs") {
                 let text = std::fs::read_to_string(&p).unwrap();
+                // The hand-back names two hooks of other programs, neither a hook into the daemon: git's script
+                // directory, set to /dev/null so no script runs, and the `worktree` command's `hook session-*`
+                // lease calls. Only those exact words are taken out, and only in that file.
+                let foreign: &[&str] = if p.file_name().is_some_and(|f| f == "handback.rs") { &["core.hookspath=/dev/null", "[\"hook\", \"session-start\"", "[\"hook\", \"session-end\""] } else { &[] };
                 for (n, line) in text.lines().enumerate() {
-                    let low = line.to_lowercase();
+                    let low = foreign.iter().fold(line.to_lowercase(), |l, f| l.replace(f, ""));
                     if (low.contains("hook") || low.contains("added-after") || low.contains("env::var(\"runbook_test") || low.contains("cfg(feature")) && !line.trim_start().starts_with("//") {
                         hits.push(format!("{}:{}: {}", p.display(), n + 1, line.trim()));
                     }
@@ -2666,6 +2670,7 @@ mod relative_state_directory {
             routes: None,
             model_route: None,
             admit: None,
+            worktree: None,
             terms: Default::default(),
         };
         let reason = engine.start(request, &Quiet, &AtomicBool::new(false)).expect_err("the start did not fail").reason;
@@ -2692,6 +2697,7 @@ mod relative_state_directory {
             arbiter: None,
             routes: Default::default(),
             classify_threshold: None,
+            repositories: Default::default(),
             route_table: None,
             assets_root: None,
             token_file: None,

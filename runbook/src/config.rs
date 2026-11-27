@@ -35,7 +35,7 @@ pub const ENV_PROGRAM_OF_A_RUN: &str = "LOOM_CASE";
 const MAX_BYTES: u64 = 256 * 1024;
 
 /// The keys that are not run settings.
-const OWN_KEYS: [&str; 8] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, DELEGATION];
+const OWN_KEYS: [&str; 9] = ["runs_dir", "spend_ledger", "runbooks", "deciders", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, DELEGATION, runbook::handback::REPOSITORIES];
 /// The table of the daemon's delegations (`classify_threshold`).
 const DELEGATION: &str = "delegation";
 /// The keys that are an option of `runbook run` too; the file's value is the option's default.
@@ -49,8 +49,8 @@ const MEMBER_KEYS: [&str; 8] = ["login_file", "gateway", "autonomy", "decider", 
 /// directory) does not have: the levels (`confinement`, `autonomy`), the caps, the spend ledger, the directories
 /// runbooks are loaded from, the gateway of the model programs and the model routes. The floor of the daemon has no
 /// key in any file.
-const NESTED_REFUSED_KEYS: [&str; 11] =
-    ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", "gateway", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY];
+const NESTED_REFUSED_KEYS: [&str; 12] =
+    ["confinement", "autonomy", "cap_micro_usd", "max_llm_calls", "max_wall_seconds", "spend_ledger", "runbooks", "gateway", runbook::routes::GATEWAYS, runbook::routes::ROUTES, runbook::routes::POLICY, runbook::handback::REPOSITORIES];
 
 /// The starter `runbook init` writes (and the README shows): no comment, the stronger confinement, and no cap, call
 /// limit or ledger (`AGENTS.md`: no default that requires or implies a cap).
@@ -394,6 +394,9 @@ pub struct File {
     /// `[delegation] classify_threshold`: the confidence, from 0 to 1, at or above which a classified delegation runs the
     /// runbook the classifier picked (`docs/model-routes.md`, section 9.1). `runbook serve` reads it.
     pub classify_threshold: Option<f64>,
+    /// `[repositories.<name>]`: the repositories a delegation may change (`runbook::handback`), none by default. `runbook
+    /// serve` reads them; their token files are read when it starts.
+    pub repositories: runbook::handback::Repositories,
 }
 
 impl File {
@@ -409,6 +412,7 @@ impl File {
             && self.members.is_empty()
             && self.routes.is_empty()
             && self.classify_threshold.is_none()
+            && self.repositories.is_empty()
     }
 
     /// What `runbook run` says on standard error before anything starts: the file and how it was found.
@@ -656,7 +660,7 @@ fn read_text(found: &Found) -> Result<File, String> {
     scan(&Value::Object(top.clone()), "").map_err(fail)?;
     if found.nested && !found.via.chosen() {
         if let Some(key) = NESTED_REFUSED_KEYS.iter().find(|k| top.contains_key(**k)) {
-            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories, the gateway or the model routes; name the file with --config to use it)")));
+            return Err(fail(format!("{key}: not a key of runbook.toml found by a program of a run (a file in the tree of a run has no key for a floor, a level, a cap, the spend ledger, the runbook directories, the gateway, the model routes or the repositories; name the file with --config to use it)")));
         }
     }
     for key in top.keys() {
@@ -734,10 +738,11 @@ fn read_text(found: &Found) -> Result<File, String> {
     let routes = top.shift_remove(runbook::routes::ROUTES);
     let route_policy = top.shift_remove(runbook::routes::POLICY);
     let classify_threshold = delegation_table(top.shift_remove(DELEGATION)).map_err(fail)?;
+    let repositories = runbook::handback::Repositories::declare(top.shift_remove(runbook::handback::REPOSITORIES).as_ref(), &dir).map_err(|e| fail(mask(&e)))?;
     check_members(&top).map_err(fail)?;
     let tables = runbook::routes::Tables { gateway: top.get(crate::loom_run::gateway::KEY), gateways: gateways.as_ref(), routes: routes.as_ref(), route_policy: route_policy.as_ref() };
     let routes = runbook::routes::RouteTable::declare(&tables).map_err(|e| fail(mask(&e)))?;
-    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes, classify_threshold })
+    Ok(File { path: found.path.clone(), via: found.via, runs_dir, spend_ledger, confinement, cap_micro_usd, max_llm_calls, max_wall_seconds, runbooks, deciders, members: top, routes, classify_threshold, repositories })
 }
 
 /// The members through the readers of a run: the keys of every table, the kinds, the decider. The
