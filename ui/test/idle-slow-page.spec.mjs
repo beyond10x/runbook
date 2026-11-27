@@ -10,7 +10,7 @@
 // The cases after it hold the line of that bound with a seam (idle-pending-seam.cjs: a response that reports 2 MiB, or a number
 // of bytes the case names, of unsent output after a `change`, and a ping every 150 ms or none): a page at the bound or under it
 // is kept and served, one byte over it is ended by the next change pushed to it, and by the next ping when no change comes.
-// Those servers run a round each 100 ms (--round-ms) where it runs one each 700 ms: each change reaches the page in the next
+// Every server here runs a round each 100 ms (--round-ms) where it runs one each 700 ms: each change reaches the page in the next
 // round, and "no ping and no change" is still two rounds counted.
 import {test, expect} from '@playwright/test';
 import fs from 'node:fs';
@@ -49,7 +49,7 @@ test('a page that never reads is dropped: its stream is ended and the rounds sto
   for (let i = 0; i < LEAVES; i++) cases.push(path.join(dir, 'children', name('l', i)));
   for (const c of cases) put(path.join(c, 'case.json'), '{"n":0}');
   expect(path.join(cases.at(-1), 'case.json').length, 'under the path limit of 4 096').toBeLessThan(4000);
-  ({url: base, proc: srv} = await startServer(['--count-reads', '--no-view', store]));
+  ({url: base, proc: srv} = await startServer(['--count-reads', '--round-ms', '100', '--no-view', store]));
   const sock = net.connect(Number(new URL(base).port), '127.0.0.1');
   sock.on('error', () => {});
   const closed = new Promise((r) => sock.once('close', r));

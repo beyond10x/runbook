@@ -28,6 +28,8 @@ export const bothFiles = Object.keys(BOTH);
 // server, a refusal, a key or token rule or a text, none of which depends on the viewport. One line per file, the reason
 // in five words. A new spec file must be added to one of the three lists.
 export const WIDE_ONLY = {
+  'adversary-late-paint.spec.mjs': 'own daemon, start.js mutant',
+  'adversary-page-time.spec.mjs': 'mutant pages, own clock',
   'adversary-ui-wave.spec.mjs': 'model function, no page',
   'autopilot.spec.mjs': 'who decides, said as text',
   'budget.spec.mjs': 'file checks, no page',
@@ -128,6 +130,7 @@ export const wideOnlyFiles = Object.keys(WIDE_ONLY);
 // claims do not depend on the viewport the project gives. budget.spec.mjs fails a wide-only file that names one and is
 // not listed, and a listed file that names none.
 export const SIZE_EXCEPTIONS = {
+  'adversary-page-time.spec.mjs': 'sets 1366 itself, like daemon-live',
   'autopilot.spec.mjs': 'sets both gating sizes itself',
   'daemon-decide.spec.mjs': 'phone test sets size',
   'daemon-live.spec.mjs': 'sets the gating sizes itself',
@@ -186,11 +189,11 @@ export const SPEC_FORM = new RegExp(`^${TEST_DIR.replace(/[.*+?^${}()|[\]\\]/g, 
 export const FIXED_WAITS = {
   '../ux/core/contract.mjs': {calls: 1, ms: 750, why: 'upper bound, ends on event'},
   '../ux/core/phone.mjs': {calls: 1, ms: 60, why: 'lets the scroll settle'},
+  'adversary-page-time.spec.mjs': {calls: 1, ms: 200},
   'autopilot.spec.mjs': {calls: 1, ms: 100},
   'child.spec.mjs': {calls: 2, ms: 1025},
-  'daemon-decide-review.spec.mjs': {calls: 2, ms: 5300},
-  'daemon-decide.spec.mjs': {calls: 2, ms: 3000},
-  'daemon-routes.spec.mjs': {calls: 1, ms: 5000},
+  'daemon-decide-review.spec.mjs': {calls: 1, ms: 300},
+  'daemon-decide.spec.mjs': {calls: 1, ms: 500},
   'daemon-start.spec.mjs': {calls: 1, ms: 300},
   'event-log-lines.spec.mjs': {calls: 1, ms: 2500},
   'fixture-hold.spec.mjs': {calls: 1, ms: 20000},
@@ -205,12 +208,10 @@ export const FIXED_WAITS = {
   'security-start-content.spec.mjs': {calls: 2, ms: 800},
   'security-start-floor-reread.spec.mjs': {calls: 1, ms: 0, variable: 'retry pause of a loop', helper: 'later', largest: 250},
   'security-start-gone-runbook.spec.mjs': {calls: 1, ms: 300},
-  'security-start-idempotency.spec.mjs': {calls: 1, ms: 1500},
-  'security-start-key.spec.mjs': {calls: 5, ms: 3600},
+  'security-start-key.spec.mjs': {calls: 2, ms: 600},
   'security-start-late-answers.spec.mjs': {calls: 1, ms: 300},
   'security-start-ready-window.spec.mjs': {calls: 9, ms: 2400, variable: 'retry pause of a loop', helper: 'later', largest: 250},
   'security-start-second-paint.spec.mjs': {calls: 3, ms: 800},
-  'security-start-token-places.spec.mjs': {calls: 2, ms: 3700},
   'security-start-token.spec.mjs': {calls: 2, ms: 800},
   'serve.mjs': {calls: 1, ms: 50},
 };

@@ -8,6 +8,7 @@
 // The token stays in the memory of the page. Each daemon listens on 127.0.0.1:0, with a state directory of its own.
 import {test, expect as plain} from '@playwright/test';
 import {spawnChild, SERVE_CAPS} from './child.mjs';
+import {installPageTime, spendPageTime} from './page-time.mjs';
 import fs from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -163,6 +164,7 @@ test('with a token the page asks for it once, a wrong token shows the daemon\'s 
   const problems = watch(page, {allow401: true});
   const sent = commands(page);
   const id = await waiting(s, 'Approve with a token');
+  await installPageTime(page);
   await enter(page, s);
   await drawer(page, id);
   await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'needed');
@@ -181,7 +183,8 @@ test('with a token the page asks for it once, a wrong token shows the daemon\'s 
   await expect(page.locator('#dd-msg')).toContainText('bearer token is required');
   await expect(page.locator('#dd-token')).toHaveValue('');
   await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'needed');
-  await page.waitForTimeout(2500);
+  // 2.5 s of the page's own time (page-time.mjs): a timer of the page that would send the answer again fires in it
+  await spendPageTime(page, 2500);
   expect(sent).toHaveLength(1);
   expect(await open(s, id)).toHaveLength(2);
   expect((await sent[0].allHeaders()).authorization).toBe('Bearer not-the-token');
