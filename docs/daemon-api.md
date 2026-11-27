@@ -210,6 +210,7 @@ price_out_micro_usd_per_mtok = 0     # optional
 wake_on_submit = false               # managed only; true needs the two keys below above 0
 wake_daily_cap_micro_usd = 0         # managed only, optional: the most the route's wakes book per day
 wake_cost_micro_usd = 0              # managed only, optional: what one wake books
+price_per_hour_micro_usd = 0         # managed only, optional: the pod's price per hour, its time for runs booked
 
 [routes.claude]
 gateway = "default"
@@ -236,7 +237,7 @@ gateway the file does not declare, a gateway without `base_url`, a `token` (or a
 members above) in a gateway, a route or the policy, a `token`, `token_file`, `base_url` or `api_key` in a route,
 `wake_on_submit = true` without a `wake_daily_cap_micro_usd` above 0 or without a `wake_cost_micro_usd` above 0
 (the line names `routes.<name>.wake_on_submit` and the key it lacks), a `wake_cost_micro_usd` above the route's
-`wake_daily_cap_micro_usd` (no wake would ever be sent; the line names both keys), a wake key on a route that is not managed, a `kind` that is not one of the three, a
+`wake_daily_cap_micro_usd` (no wake would ever be sent; the line names both keys), a wake key or `price_per_hour_micro_usd` on a route that is not managed, a `kind` that is not one of the three, a
 `model` that is no alias (an address), a policy that names a route the file does not declare, a name that is not
 1 to 64 letters, digits, `.`, `_` or `-`, and a token file it cannot read. Nothing is written before.
 
@@ -379,6 +380,35 @@ it joins a wake already sent:
   `{"route", "phase", "ceiling": "spend-ceiling"}`. Any other answer leaves the run waiting for its route.
 - A model in another phase (`starting`, `stopping`), a hosted or a local route, and a route without the wake are not
   woken.
+
+#### The pod's time of a managed route
+
+A managed route that declares `price_per_hour_micro_usd` (a whole number of micro-USD, the figure of the gateway's
+own `price_per_hour_usd`, which no route of the gateway serves) books the time its pod ran for its runs at that price
+against `wake_daily_cap_micro_usd`, beside its wakes (`docs/model-routes.md`, section 5, D-3; story
+`a-managed-route-books-its-pods-measured-time`). Without the key the pod's time books nothing, as before.
+
+- A run uses the pod from its start (`started_at`: the daemon starts a run only once the route was read ready) to its
+  end. While a run that started on the route lives, the daemon reads the route's status every 5 s of its clock,
+  the first time 5 s after the earliest start of those runs, with the `GET` requests of a submit; a read that the
+  pod cannot answer (`stopped`, `stopping`, or any phase but `ready`) ends the use of every such run, and a later
+  read of it ready opens it again. Each change is the run event `runbook.route-pod-phase`: `{"route", "phase"}`. A
+  gateway that does not answer changes nothing.
+- The split rule: the pod's time is cut at every start and end of a run's use, and each piece is split equally over
+  the runs that used the pod in it; a millisecond a piece cannot split goes to the runs first in submit order, one
+  each (`runbook/src/pod_time.rs`). Two runs that share 30 minutes at 3.00 USD per hour book 0.75 USD each; two that
+  overlap 15 of 45 minutes book 15 minutes alone and 7.5 shared, 1.125 USD each. The time after the last run's end,
+  while the pod waits for its idle stop, is booked to no run. A run whose pod never became ready books no time. A run
+  the daemon found live at a restart (`orphaned`) used the pod to its last event before it.
+- Just before a run on the route ends (`EndRun`, a cancel) the daemon writes its share in the run event
+  `runbook.route-pod-time`: `{"route", "pod_millis", "share_millis", "price_per_hour_micro_usd", "cost_micro_usd"}`,
+  `pod_millis` the time the pod ran while the run used it, `share_millis` its share by the rule, `cost_micro_usd`
+  that share at the price, rounded up to the micro-USD.
+- The day's cap counts wakes and pod time together: the pod's time inside the day of the daemon's clock (UTC), each
+  run's share of it at the price, also of runs that still live (up to now). A wake's `runbook.route-wake` on such a
+  route also holds `pod_micro_usd`, the part of `booked_micro_usd` that is pod time. A wake that the rest of the day's
+  cap does not cover is not sent (`wake cap reached`) and the run waits as any run that waits; the cap stops no pod
+  and no run already on it. The booking is the journal's: a daemon started again counts the same figures.
 
 ### A delegation
 

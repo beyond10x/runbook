@@ -11,10 +11,10 @@
 //! sets. The daemon's refusal at start runs the `runbook serve` binary on a file of the case.
 
 use runbook::clock::SetClock;
-use runbook::commands::{Daemon, Policy, SubmitRun};
+use runbook::commands::{AnswerDecision, Daemon, Policy, SubmitRun};
 use runbook::routes::{RouteTable, Tables};
 use runbook::runtime::{Autonomy, Confinement};
-use runbook::stub::{Script, Step, StubRuntime};
+use runbook::stub::{Ask, Script, Step, StubRuntime};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -153,6 +153,10 @@ fn daemon_in(dir: &Path, gw: &Gateway, wake: Value, clock: Arc<SetClock>) -> Dae
     table.read_tokens().unwrap();
     let stub = Arc::new(StubRuntime::new());
     stub.script("quick", Script::new(vec![Step::End("done".into())]));
+    // a run that waits on one decision until the case answers it
+    let option = json!({"letter": "A", "does": "go on", "cost": "none", "consequence": {"admits": [], "blocks": []}});
+    let ask = Ask { request_id: "{run}-q1".into(), case_id: "case-1".into(), action: "stub.approve".into(), capability: "approve".into(), question: "go on?".into(), options: vec![option], artifact: None };
+    stub.script("held", Script::new(vec![Step::Ask(vec![ask]), Step::End("done".into())]));
     let policy = Policy { default_confinement: Some(Confinement::Linux), kinds: vec!["model".into()], routes: Arc::new(table), ..Policy::default() };
     Daemon::start_full(super::commands::config(dir), policy, stub, clock).unwrap()
 }
@@ -558,4 +562,142 @@ fn a_wake_with_no_answer_books_nothing_and_is_sent_again_after_the_pause() {
     assert_eq!(records(&d, &run, "runbook.route-wake"), vec![sent(100, 250), sent(100, 250)]);
     assert_eq!(gw.wakes(), 2);
     gw.no_call();
+}
+
+// ---- story a-managed-route-books-its-pods-measured-time ----
+
+/// The wake keys of `wake_on` and the pod's price per hour, 3.00 USD.
+fn priced(cap: u64, cost: u64) -> Value {
+    let mut wake = wake_on(cap, cost);
+    wake["price_per_hour_micro_usd"] = json!(3_000_000);
+    wake
+}
+
+/// A run of the runbook `held` on `route`: it waits on one decision until [`answer`] ends it.
+fn submit_held(d: &Daemon, route: &str) -> String {
+    let o = d.submit_run(SubmitRun { runbook_id: "held".into(), intake: "x".into(), autonomy: Some(Autonomy::A5), decider: Some("model".into()), model_route: Some(route.into()), ..SubmitRun::default() }).unwrap();
+    assert_eq!(o.name, "submitted", "{o:?}");
+    let run = o.run_id.unwrap();
+    until_state(d, &run, "WaitingOnDecision");
+    run
+}
+
+/// Answers the decision of a run of `held`, and waits until the run ended.
+fn answer(d: &Daemon, run: &str) -> Value {
+    let o = d.answer_decision(AnswerDecision { run_id: run.into(), request_id: format!("{run}-q1"), answer: "A".into(), answered_by: "operator".into() }).unwrap();
+    assert!(!o.is_refusal(), "{o:?}");
+    until_state(d, run, "Ended")
+}
+
+fn pod_time(pod_millis: u64, share_millis: u64, cost: u64) -> Value {
+    json!({"route": "qwen", "pod_millis": pod_millis, "share_millis": share_millis, "price_per_hour_micro_usd": 3_000_000, "cost_micro_usd": cost})
+}
+
+/// A run alone on a ready pod books the pod's time from its start (the pod read ready) to the pod's stop, which the
+/// daemon reads while the run lives, at the route's price per hour: 20 minutes at 3.00 USD is 1.00 USD. The time
+/// after the stop, while the run still waits on its decision, books nothing.
+#[test]
+fn a_run_alone_on_a_ready_pod_books_its_time_to_the_pods_stop_at_the_price_per_hour() {
+    let gw = Gateway::start("ready", (202, json!({})));
+    let (d, clock) = daemon("pod-alone", &gw, priced(10_000_000, 500_000));
+    let run = submit_held(&d, "qwen");
+    clock.set("2026-11-26T10:20:00Z");
+    gw.set_phase("stopped");
+    assert_eq!(until_records(&d, &run, "runbook.route-pod-phase"), vec![json!({"route": "qwen", "phase": "stopped"})]);
+    clock.set("2026-11-26T10:40:00Z");
+    assert_eq!(answer(&d, &run)["outcome"], "done");
+    assert_eq!(records(&d, &run, "runbook.route-pod-time"), vec![pod_time(1_200_000, 1_200_000, 1_000_000)]);
+    gw.no_call();
+}
+
+/// The split rule: each stretch of the pod's time is split equally over the runs that used the pod in it. Two runs
+/// that share 30 minutes at 3.00 USD per hour book 0.75 USD each. Two runs that overlap for 15 of 45 minutes book
+/// 15 minutes alone and half of the 15 shared: 1.125 USD each, and the two shares add up to 45 minutes at the price.
+#[test]
+fn runs_that_share_a_pod_split_its_time_equally_over_each_stretch_they_share() {
+    let gw = Gateway::start("ready", (202, json!({})));
+    let (d, clock) = daemon("pod-shared", &gw, priced(10_000_000, 500_000));
+    let (a, b) = (submit_held(&d, "qwen"), submit_held(&d, "qwen"));
+    clock.set("2026-11-26T10:30:00Z");
+    answer(&d, &a);
+    answer(&d, &b);
+    assert_eq!(records(&d, &a, "runbook.route-pod-time"), vec![pod_time(1_800_000, 900_000, 750_000)]);
+    assert_eq!(records(&d, &b, "runbook.route-pod-time"), vec![pod_time(1_800_000, 900_000, 750_000)]);
+
+    clock.set("2026-11-26T11:00:00Z");
+    let c = submit_held(&d, "qwen");
+    clock.set("2026-11-26T11:15:00Z");
+    let e = submit_held(&d, "qwen");
+    clock.set("2026-11-26T11:30:00Z");
+    answer(&d, &c);
+    clock.set("2026-11-26T11:45:00Z");
+    answer(&d, &e);
+    let (c, e) = (records(&d, &c, "runbook.route-pod-time"), records(&d, &e, "runbook.route-pod-time"));
+    assert_eq!(c, vec![pod_time(1_800_000, 1_350_000, 1_125_000)]);
+    assert_eq!(e, vec![pod_time(1_800_000, 1_350_000, 1_125_000)]);
+    // 45 minutes at 3.00 USD per hour
+    assert_eq!(c[0]["cost_micro_usd"].as_u64().unwrap() + e[0]["cost_micro_usd"].as_u64().unwrap(), 2_250_000);
+    gw.no_call();
+}
+
+/// The route's daily cap counts its wakes and its pod's time together. A run whose pod never became ready books its
+/// wake and no time; a run on the woken pod books 30 minutes (1.50 USD); the next wake would bring the day to 3.00 USD,
+/// past the cap of 2.80 USD, so it is not sent and the run waits as a run past the wake cap does.
+#[test]
+fn the_daily_cap_counts_wakes_and_pod_time_together_and_a_pod_never_ready_books_no_time() {
+    let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));
+    let dir = super::state::scratch("pod-cap");
+    let clock = Arc::new(SetClock::at("2026-11-26T09:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, priced(2_800_000, 500_000), clock.clone());
+    let wake = |booked: u64, pod: u64| json!({"route": "qwen", "sent": true, "day": "2026-11-26", "cost_micro_usd": 500_000, "booked_micro_usd": booked, "pod_micro_usd": pod, "cap_micro_usd": 2_800_000});
+
+    // the pod never becomes ready: the run ends on its wait, its wake booked, no time
+    let never = submit(&d, "qwen");
+    until_records(&d, &never, "runbook.route-wake-answered");
+    assert_eq!(records(&d, &never, "runbook.route-wake"), vec![wake(500_000, 0)]);
+    clock.set("2026-11-26T09:10:00Z");
+    assert_eq!(until_state(&d, &never, "Ended")["outcome"], "stopped: route");
+    assert!(records(&d, &never, "runbook.route-pod-time").is_empty(), "{:?}", d.events_after(&never, 0));
+
+    // a woken pod that a run uses for 30 minutes
+    clock.set("2026-11-26T10:00:00Z");
+    let o = d.submit_run(SubmitRun { runbook_id: "held".into(), intake: "x".into(), autonomy: Some(Autonomy::A5), decider: Some("model".into()), model_route: Some("qwen".into()), ..SubmitRun::default() }).unwrap();
+    let used = o.run_id.unwrap();
+    until_records(&d, &used, "runbook.route-wake-answered");
+    assert_eq!(records(&d, &used, "runbook.route-wake"), vec![wake(1_000_000, 0)]);
+    gw.set_phase("ready");
+    clock.set("2026-11-26T10:00:05Z");
+    until_state(&d, &used, "WaitingOnDecision");
+    clock.set("2026-11-26T10:30:05Z");
+    answer(&d, &used);
+    assert_eq!(records(&d, &used, "runbook.route-pod-time"), vec![pod_time(1_800_000, 1_800_000, 1_500_000)]);
+
+    // the day booked 1.00 USD of wakes and 1.50 USD of pod time: a wake of 0.50 USD would pass the cap of 2.80 USD
+    gw.set_phase("stopped");
+    clock.set("2026-11-26T11:00:00Z");
+    let late = submit(&d, "qwen");
+    let refused = until_records(&d, &late, "runbook.route-wake");
+    assert_eq!(refused, vec![json!({"route": "qwen", "sent": false, "reason": "wake cap reached", "day": "2026-11-26", "cost_micro_usd": 500_000, "booked_micro_usd": 2_500_000, "pod_micro_usd": 1_500_000, "cap_micro_usd": 2_800_000})]);
+    assert_eq!(detail(&d, &late)["state"], "WaitingForRoute");
+    assert_eq!(gw.wakes(), 2, "a wake was sent past the day's cap of wakes and pod time");
+
+    // the booking is the journal's: a daemon started again counts the pod's time too
+    d.stop();
+    drop(d);
+    clock.set("2026-11-26T11:30:00Z");
+    let d = daemon_in(&dir, &gw, priced(2_800_000, 500_000), clock.clone());
+    let again = submit(&d, "qwen");
+    let refused = until_records(&d, &again, "runbook.route-wake");
+    assert_eq!((refused[0]["sent"].clone(), refused[0]["booked_micro_usd"].clone()), (json!(false), json!(2_500_000)), "{refused:?}");
+    gw.no_call();
+}
+
+/// The pod's price is a key of a managed route only, like the wake keys.
+#[test]
+fn a_pod_price_on_a_route_that_is_not_managed_is_refused_at_start_by_name() {
+    let file = "[gateways.gw]\nbase_url = \"http://127.0.0.1:9\"\n[routes.claude]\ngateway = \"gw\"\nmodel = \"claude\"\nkind = \"hosted\"\nprice_per_hour_micro_usd = 3000000\n";
+    let (status, err, wrote) = serve("pod-price-hosted", file);
+    assert_eq!(status, Some(2), "the daemon started: {err}");
+    assert!(err.contains("routes.claude.price_per_hour_micro_usd") && err.contains("managed route only"), "the refusal does not name the key: {err}");
+    assert!(!wrote, "the state directory was written");
 }
