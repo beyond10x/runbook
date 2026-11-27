@@ -266,6 +266,7 @@ fn a_full_run_writes_the_settings_and_no_login_path_or_content() {
 #[test]
 fn the_child_environment_is_built_and_not_inherited() {
     let w = World::new("env");
+    w.fake.record_env();
     w.one_decision_tree();
     w.scripted_approve();
     let o = w.run(&w.args("r1", 1_000_000));
@@ -274,16 +275,16 @@ fn the_child_environment_is_built_and_not_inherited() {
     assert!(calls.len() >= 8);
     let run_dir = w.run_dir("r1").display().to_string();
     for call in &calls {
-        let keys: Vec<&str> = call.env.iter().map(|(k, _)| k.as_str()).collect();
+        let keys: Vec<&str> = call.env().iter().map(|(k, _)| k.as_str()).collect();
         for k in &keys {
             assert!(["PATH", "HOME", "XDG_DATA_HOME", "RUNBOOK_NO_CONFIG", "PWD", "SHLVL", "_", "OLDPWD"].contains(k), "unexpected variable {k} in {keys:?}");
         }
-        assert!(call.env.iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a program of the run is not told to read no runbook.toml: {keys:?}");
-        let text = call.env.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n");
+        assert!(call.env().iter().any(|(k, v)| k == "RUNBOOK_NO_CONFIG" && v == "1"), "a program of the run is not told to read no runbook.toml: {keys:?}");
+        let text = call.env().iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("\n");
         for marker in ["marker-secret-value", "ANTHROPIC_API_KEY", "/marker-home-dir"] {
             assert!(!text.contains(marker), "{marker} reached the child: {text}");
         }
-        let get = |k: &str| call.env.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
+        let get = |k: &str| call.env().iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
         assert_eq!(get("PATH"), Some(w.path()));
         assert!(get("HOME").unwrap().starts_with(&run_dir));
         assert!(get("XDG_DATA_HOME").unwrap().starts_with(&run_dir));
@@ -701,6 +702,42 @@ fn sigterm_ends_the_child_and_writes_stopped_signal() {
     assert_eq!(spent(&w), 0, "the reservation was released or booked at its cost");
 }
 
+/// Adversary on story:the-runbook-test-step-stays-under-its-budget (`child.rs` now waits on a thread of its own): a
+/// `b10x-loom` child that ignores SIGTERM, and its own child with it, is ended by the SIGKILL 3 s later, and the runner
+/// ends with `stopped: signal`. No other case reaches that SIGKILL: without it the runner waits for such a child forever.
+#[test]
+fn adversary_a_child_that_ignores_sigterm_is_killed_after_three_seconds_and_the_run_stops_on_the_signal() {
+    let w = World::new("adv-sigterm-ignored");
+    w.fake.answer("tree_run", "1", "", 0);
+    w.fake.hook("tree_run", "1", "trap '' TERM\necho $$ > \"$D/pid\"\nsleep 30\n");
+    let mut child = w.command(&w.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let started = std::time::Instant::now();
+    while !w.fake.dir.join("pid").exists() {
+        assert!(started.elapsed().as_secs() < 20, "the fake tree run did not start");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let pid = std::fs::read_to_string(w.fake.dir.join("pid")).unwrap().trim().to_owned();
+    assert!(Command::new("kill").args(["-TERM", &child.id().to_string()]).status().unwrap().success());
+    let end = std::time::Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        if end.elapsed().as_secs() >= 10 {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = Command::new("kill").args(["-KILL", &pid]).status();
+            panic!("the runner did not end within 10 s of SIGTERM while its child ignored SIGTERM");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    let took = end.elapsed();
+    assert!(took >= std::time::Duration::from_millis(2500), "the runner ended {took:?} after SIGTERM: its child ignored SIGTERM, so it cannot have been ended before the SIGKILL 3 s later");
+    assert_eq!(status.code(), Some(7));
+    assert_eq!(w.outcome("r1")["outcome"], "stopped: signal");
+    assert!(!Command::new("kill").args(["-0", &pid]).stderr(Stdio::null()).status().unwrap().success(), "the fake child is still alive");
+}
+
 // the cost of a step
 
 #[test]
@@ -867,4 +904,49 @@ fn the_child_path_writes_its_start_event_before_the_step_ends_and_names_no_actio
     assert!(status.code().is_some(), "{status:?}");
     let record: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1").join("runner.json")).unwrap()).unwrap();
     assert!(record["closed_at"].as_u64().is_some(), "{record}");
+}
+
+/// Adversary on story:the-runbook-test-step-stays-under-its-budget: the fake's answers are sourced `printf` lines now.
+/// Every text a test may hand to `Fake::answer` or `Fake::stderr` comes back byte for byte, `@STORE@` replaced by the
+/// `--store` of the call, whatever quotes, backslashes, `%`, a leading `-` or a missing last newline the text holds,
+/// and whatever the store's path holds.
+#[test]
+fn adversary_the_fake_prints_every_answer_text_as_written() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("loomrun-adv-printf-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let fake = Fake::new(&dir);
+    let texts = [
+        "it's", "'", "''", "a'b'c", "\\", "a\\nb\\t", "100% %s %d %% %b", "-n", "--", "-e x", "'@STORE@'", "\"@STORE@\"",
+        "@STORE@@STORE@", "@STORE@", "x'@STORE@'y\n", "@STORE", "@@STORE@@", "$HOME $(echo x) `id` ${D}", "no newline",
+        "two\n\nlines\n\n", "\n", "tab\there\r\n", "ü → ✓", "{\"command\":[\"b10x-loom\",\"--store\",\"@STORE@\"]}\n",
+    ];
+    for (i, t) in texts.iter().enumerate() {
+        fake.answer("tree_run", &(i + 1).to_string(), t, 0);
+        fake.stderr("tree_run", &(i + 1).to_string(), t);
+    }
+    let stores = ["/plain/store", "/a|b&c\\d/'q'/\"dq\"/$x/`y`/ sp/%s"];
+    let mut bad = Vec::new();
+    let mut n = 0;
+    for store in stores {
+        for t in texts {
+            n += 1;
+            if n > texts.len() {
+                // the second store reads its answers through `default`
+                fake.answer("tree_run", "default", t, 0);
+                fake.stderr("tree_run", "default", t);
+            }
+            let o = Command::new(fake.bin()).args(["tree", "run", "--store", store]).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).output().unwrap();
+            let want = t.replace("@STORE@", store);
+            if o.status.code() != Some(0) || o.stdout != want.as_bytes() || o.stderr != want.as_bytes() {
+                bad.push(format!("{t:?} with store {store:?}: exit {:?}, stdout {:?}, stderr {:?}", o.status.code(), String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)));
+            }
+        }
+    }
+    let empty = Fake::new(&dir.join("empty"));
+    empty.answer("tree_run", "1", "", 3).stderr("tree_run", "1", "");
+    let o = Command::new(empty.bin()).args(["tree", "run"]).env("RUNBOOK_NO_CONFIG", "1").stdin(Stdio::null()).output().unwrap();
+    if o.status.code() != Some(3) || !o.stdout.is_empty() || !o.stderr.is_empty() {
+        bad.push(format!("the empty text: {o:?}"));
+    }
+    assert!(bad.is_empty(), "the fake mangled {} answer(s):\n{}", bad.len(), bad.join("\n"));
 }
