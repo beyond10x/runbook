@@ -315,6 +315,8 @@ At submit, after the route is resolved and before anything is written:
    A wake books only when the gateway took it (a `2xx`); a `4xx`, a `5xx` or no answer books nothing, the run record
    naming the gateway's code, and a `5xx` other than `spend-ceiling` or no answer is sent again after 30 s while the
    model is still `stopped`, within the run's wait and never past it (story `a-wake-is-booked-only-when-it-succeeds`).
+   The answer to a wake whose run was cancelled while it was out books the same way, and a wake out when the daemon
+   was killed stays booked (decision D11).
    The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing

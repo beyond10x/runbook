@@ -374,13 +374,16 @@ it joins a wake already sent:
 - A wake the rest of the day's cap does not cover is not sent: the event says `"sent": false, "reason": "wake cap
   reached"` with what the day booked so far, and the run waits as any run that waits.
 - The gateway's answer is the run event `runbook.route-wake-answered`: `{"route", "status"}` (`status` null when it
-  did not answer within 5 s) and `code`, the gateway's error code, when it gave one.
+  did not answer within 5 s) and `code`, the gateway's error code, when it gave one. A run closed while its wake was
+  out (cancelled, ended) takes no event, so its answer is the daemon's journal line `route.wake-answered`
+  (`{"run_id", "record"}`, the same record); the view `daemon-events` does not show it.
 - A wake books only when the gateway took it: a `2xx` answer (story `a-wake-is-booked-only-when-it-succeeds`). A `4xx`,
   a `5xx` (`target-unavailable` when the pod's start failed, `spend-ceiling`) or no answer within 5 s books nothing;
-  the record of its send keeps the figure it held while it was out. A wake not answered yet counts as booked while its
-  run lives, so two runs cannot both pass the cap while their wakes are out. A wake whose run ended before its answer
-  came (a cancel, the daemon's stop) books nothing, whatever the gateway answered: a closed run takes no event, so its
-  answer is not in the journal.
+  the record of its send keeps the figure it held while it was out. A wake not answered yet counts as booked, so two
+  runs cannot both pass the cap while their wakes are out. The answer of a run closed before it came books the same
+  way: a `2xx` is booked, anything else is not. A wake out when the daemon was killed has no answer and stays booked
+  after the restart: the gateway may have taken it, and the cap counts more, never less (decision D11 of the unit's
+  coordinator).
 - A wake answered with a `5xx` other than `spend-ceiling`, or not answered within 5 s, is sent again 30 s of the
   daemon's clock later (`WAKE_AGAIN_AFTER_MILLIS`, `runbook/src/commands.rs`) while the gateway still gives the model
   as `stopped`, and again after each such answer, but only before the run's wait for its route is over (the least
@@ -1037,7 +1040,7 @@ State directory:
 | Path | Holds |
 |---|---|
 | `daemon.lock` | Held while a daemon runs on the directory; a second daemon exits 1 with "in use by another daemon". |
-| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. A drain adds two lines of its own: `daemon.draining` (the ids of the live runs) and `daemon.drained` (see "Stopping the daemon"). |
+| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. A drain adds two lines of its own: `daemon.draining` (the ids of the live runs) and `daemon.drained` (see "Stopping the daemon"). A wake answered after its run was closed adds `route.wake-answered` (see "The wake of a managed route"). |
 | `runs/<run_id>/` | The run's own record, written by the runtime. |
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 

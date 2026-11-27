@@ -872,13 +872,15 @@ pub const WAKE_CAP_REACHED: &str = "wake cap reached";
 /// The reason of a wake that was not sent because a wake of the same route was sent within the route's wait.
 pub const WAKE_JOINED: &str = "joined a wake sent within the wait";
 
-/// A wake of a route a run sent, from the journal: its `runbook.route-wake` and the answer the run wrote for it.
+/// A wake of a route a run sent, from the journal: its `runbook.route-wake` and the answer the daemon wrote for it.
 struct SentWake<'a> {
     run_id: &'a str,
     at: &'a str,
     record: &'a Value,
-    /// The run's `runbook.route-wake-answered` of this wake: the next one of the same run and route (a run sends one wake
-    /// of a route at a time). None while the wake is out, and for a wake whose run ended before its answer.
+    /// The record of the answer to this wake: the run's next `runbook.route-wake-answered` of the same route (a run sends
+    /// one wake of a route at a time), or, when the run was closed before the answer came, the daemon's line
+    /// `route.wake-answered` of that run and route. None while the wake is out, and for a wake whose daemon went away
+    /// before its answer came.
     answer: Option<&'a Value>,
 }
 
@@ -900,6 +902,12 @@ fn sent_wakes<'a>(st: &'a State, route: &str) -> Vec<SentWake<'a>> {
             }
         }
     }
+    // an answer that came after its run was closed: the run sends no wake after it, so it answers the run's wake still out
+    for a in st.wake_answers().iter().filter(|a| a.record["route"] == route) {
+        if let Some(i) = out.get_mut(a.run_id.as_str()).and_then(std::collections::VecDeque::pop_front) {
+            wakes[i].answer = Some(&a.record);
+        }
+    }
     wakes
 }
 
@@ -912,7 +920,8 @@ fn run_lives(st: &State, run_id: &str) -> bool {
 /// model, from the run events of every run (the journal, so a daemon started again finds it): its run and its instant.
 /// A wake may start the model when the gateway took it (a 2xx), and while its run lives and its answer is not in or
 /// was one the run sends the wake again on (a 5xx, no answer). A wake answered `spend-ceiling` is joined too: its answer
-/// ends the run that joins it. A wake answered otherwise (a 4xx), or whose run ended without a 2xx, starts nothing.
+/// ends the run that joins it. A wake answered otherwise (a 4xx), or whose run ended without a 2xx (also one whose
+/// daemon went away before its answer came: nothing says the gateway took it), is not joined.
 fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
     sent_wakes(st, route).into_iter().rev().find_map(|w| {
         let at = crate::clock::parse_instant(w.at)?;
@@ -946,7 +955,8 @@ enum Woke {
 
 /// Whether the gateway answered the wake the run `run` sent for `route` with `spend-ceiling`.
 fn answered_ceiling(st: &State, run: &str, route: &str) -> bool {
-    st.events_after(Some(run), None, 0).iter().any(|e| e.kind == ROUTE_WAKE_ANSWERED && e.record["route"] == route && e.record["code"] == crate::routes::SPEND_CEILING)
+    let ceiling = |record: &Value| record["route"] == route && record["code"] == crate::routes::SPEND_CEILING;
+    st.events_of(run).any(|e| e.kind == ROUTE_WAKE_ANSWERED && ceiling(&e.record)) || st.wake_answers().iter().any(|a| a.run_id == run && ceiling(&a.record))
 }
 
 /// Whether the record of a `runbook.route-wake-answered` says the gateway took the wake: a 2xx answer.
@@ -956,14 +966,15 @@ fn wake_taken(answer: &Value) -> bool {
 
 /// What the sent wakes of `route` booked on `day` (the first 10 characters of the daemon's instant), from the run
 /// events `runbook.route-wake` of every run: the journal is the booking, so a daemon started again counts them. A wake
-/// books only when the gateway took it: its answer (the next `runbook.route-wake-answered` of the same run and route,
-/// a run sends one wake at a time) is a 2xx. A wake whose answer is not written yet stays booked while its run lives, so
-/// two runs cannot both pass the cap while their wakes are out; a 5xx, a 4xx or no answer books nothing, and so does a
-/// wake whose run ended (a cancel, the daemon's stop) before its answer could be written: a closed run takes no event.
+/// books only when the gateway took it: its answer ([`SentWake::answer`], also one that came after its run was closed)
+/// is a 2xx; a 5xx, a 4xx or no answer within the bound books nothing. A wake whose answer is not written stays booked:
+/// while it is out, so two runs cannot both pass the cap while their wakes are out, and for good when the daemon went
+/// away before its answer came (killed with the wake out): the gateway may have taken it, and the cap counts more,
+/// never less (decision D11 of the unit's coordinator).
 fn wakes_booked(st: &State, route: &str, day: &str) -> u64 {
     sent_wakes(st, route)
         .into_iter()
-        .filter(|w| w.record["day"] == day && w.answer.map_or_else(|| run_lives(st, w.run_id), wake_taken))
+        .filter(|w| w.record["day"] == day && w.answer.is_none_or(wake_taken))
         .filter_map(|w| w.record["cost_micro_usd"].as_u64())
         .fold(0u64, u64::saturating_add)
 }
@@ -2800,7 +2811,16 @@ impl Daemon {
         if let Some(code) = &answer.code {
             record["code"] = json!(code);
         }
-        let _ = self.record_run_event(run_id, ROUTE_WAKE_ANSWERED, record);
+        {
+            // a run closed while its wake was out takes no event: the answer is the daemon's line, so the booking sees it
+            let mut st = self.st();
+            if run_lives(&st, run_id) {
+                let _ = record_event_locked(&mut st, run_id, ROUTE_WAKE_ANSWERED, record);
+            } else {
+                let at = st.now();
+                let _ = st.commit(Fact::RouteWakeAnswered(crate::state::WakeAnswer { run_id: run_id.to_owned(), record, at }));
+            }
+        }
         if answer.code.as_deref() == Some(crate::routes::SPEND_CEILING) {
             Woke::Ceiling
         } else if answer.status.is_none_or(|s| s >= 500) {
