@@ -428,3 +428,69 @@ fn a_run_whose_call_the_routes_daily_cap_refused_ends_as_a_run_at_a_cap_naming_t
     let row = rows(&l, "/daemon/views/routes").into_iter().find(|r| r["route"] == "a").unwrap_or_default();
     assert_eq!(daily(&row), [json!(7), Value::Null, json!(1), json!(1)], "{row}");
 }
+
+/// The run's side of the relay with a cap of calls of its own: the calls past it are refused by the run.
+struct Capped {
+    left: Mutex<u64>,
+}
+
+impl Booking for Capped {
+    fn admit(&self) -> Result<(), String> {
+        let mut left = self.left.lock().unwrap();
+        if *left == 0 {
+            return Err("llm calls: the run's cap".to_owned());
+        }
+        *left -= 1;
+        Ok(())
+    }
+    fn reservation_micro_usd(&self) -> u64 {
+        7_000
+    }
+    fn step(&self) -> Option<String> {
+        None
+    }
+    fn book(&self, _line: Value, _micro_usd: u64) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// A call the run's own caps refuse was never sent: it gives back the count its route's day took for it, so another
+/// run on the route still has the day's calls.
+#[test]
+fn a_call_the_runs_own_cap_refuses_gives_back_its_count_of_the_routes_day() {
+    let gw = gateway();
+    let r = Rig::new("day-cap-run-refused", &gw);
+    let resolved = ResolvedRoute::from(r.table.resolve("l").unwrap());
+    let ticket = r.relay.open("run-out", runbook::relay::RouteTable::default().with("default", resolved, "run")).unwrap();
+    ticket.take_calls(Arc::new(Capped { left: Mutex::new(0) }));
+    for _ in 0..3 {
+        let refused = r.call(&ticket);
+        assert_eq!(refused.status, 429, "{}", refused.text());
+        assert!(refused.json()["error"].get("cap_key").is_none(), "the run's cap is no route's: {}", refused.text());
+    }
+    assert_eq!(daily(&r.row("l")), [json!(0), Value::Null, json!(0), json!(2)], "a call the run refused counts on its route");
+    let (other, _) = r.open("run-in", "l");
+    assert_eq!(r.call(&other).status, 200);
+    assert_eq!(r.call(&other).status, 200);
+    refused_with(&r.call(&other), "route.l.daily_max_llm_calls");
+    assert_eq!(got(&gw).len(), 2);
+}
+
+/// A ledger the daemon cannot read when it starts leaves the day's figures unknown: a call on a route with a daily cap
+/// is refused naming its key and the cause, and a route without one still sends.
+#[test]
+fn a_ledger_that_cannot_be_read_at_start_refuses_the_calls_of_a_capped_route_and_none_other() {
+    let gw = gateway();
+    let dir = super::state::scratch("day-cap-broken-ledger");
+    std::fs::create_dir_all(dir.join("state/ledgers")).unwrap();
+    std::fs::write(dir.join("state/ledgers/other.json"), "{not a ledger").unwrap();
+    let r = Rig::on(dir, &gw, Arc::new(SetClock::at(MORNING).unwrap()));
+    let (capped, book) = r.open("run-c", "h");
+    let refused = r.call(&capped);
+    refused_with(&refused, "route.h.daily_cap_micro_usd");
+    assert!(refused.text().contains("could not be rebuilt"), "{}", refused.text());
+    assert_eq!(book.capped.lock().unwrap().len(), 1);
+    let (free, _) = r.open("run-f", "free");
+    assert_eq!(r.call(&free).status, 200);
+    assert_eq!(got(&gw).len(), 1);
+}
