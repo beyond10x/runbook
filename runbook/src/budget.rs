@@ -422,6 +422,31 @@ pub fn runbook_budgets(root: &Path) -> Result<RunbookBudgets, String> {
     Ok(out)
 }
 
+/// Whether a program of the bindings `root` names (the root's and each child file's) calls a model, which gives a daemon
+/// run a model step (`docs/model-routes.md`, section 2): an agent node (`executor.argv` runs `sdc-node`,
+/// [`crate::delegation::AGENT_NODE`]), or a program whose per-call budget, read as [`Reserves::of`] reads it, is above 0:
+/// the largest its arguments name, else the member of its action, else of its file, else the largest of the runbook. A
+/// budget of 0 is a program that calls no model ([`MEMBER`]). Bindings a run is refused for at load (a refused budget, a
+/// program no budget covers, [`reserves`]) count as calling one.
+pub fn calls_a_model(root: &Path) -> bool {
+    let Ok(Reserves { unnamed_micro_usd, .. }) = reserves(root) else { return true };
+    let mut calls = false;
+    let walked = walk(root, Reading::Path, |_, _, doc| {
+        let file_member = doc.get(MEMBER).and_then(member_usd);
+        for a in actions(doc) {
+            let first = a.get("executor").and_then(|e| e.get("argv")).and_then(Value::as_sequence).and_then(|argv| argv.first()).and_then(Value::as_str);
+            let agent_node = first.is_some_and(|f| Path::new(f).file_name().is_some_and(|name| name == crate::delegation::AGENT_NODE[0]));
+            let member = a.get(MEMBER).and_then(member_usd).or(file_member);
+            for items in programs(a) {
+                let budget = if names_budget(items) { argv_budget(items) } else { Some(member.unwrap_or(unnamed_micro_usd)) };
+                calls |= agent_node || budget.is_none_or(|m| m > 0);
+            }
+        }
+        Ok(())
+    });
+    walked.is_err() || calls
+}
+
 /// The program of an action as its binding names it, for the end of a run whose step failed: whether it is an agent
 /// node (`executor.argv` runs `sdc-node`, [`crate::delegation::AGENT_NODE`]) and its `timeout_seconds`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -729,6 +754,47 @@ mod tests {
         let r = reserves(&d.join("root.yaml")).unwrap();
         assert_eq!(r.of(&d.join("tools/d.sh").display().to_string(), &[]), 0);
         assert_eq!(runbook_budgets(&d.join("root.yaml")).unwrap().unnamed, None);
+    }
+
+    /// The model step of a runbook's programs (`docs/model-routes.md`, section 2): an agent node, or a program whose
+    /// per-call budget, read as a run reserves it, is above 0. A budget of 0 is a program that calls no model.
+    #[test]
+    fn a_program_calls_a_model_when_it_is_an_agent_node_or_its_budget_is_above_0() {
+        let d = dir("calls");
+        let calls = |root: &str, child: Option<&str>| {
+            std::fs::write(d.join("root.yaml"), root).unwrap();
+            let _ = std::fs::remove_file(d.join("child.yaml"));
+            if let Some(child) = child {
+                std::fs::write(d.join("child.yaml"), child).unwrap();
+            }
+            calls_a_model(&d.join("root.yaml"))
+        };
+        let file = |actions: &str| format!("format: loom.bindings/1\nactions:\n{actions}");
+        let program = |name: &str, argv: &str| format!("  - action: {name}\n    executor: {{kind: program, argv: [{argv}]}}\n");
+        let zero = program("a", "tools/a.sh, --max-budget-usd, \"0\"");
+        let open = "  - action: k.open\n    executor: {kind: open, name: k, bindings: child.yaml}\n";
+
+        assert!(!calls(&file("  - action: r\n    executor: {kind: person, principal: reviewer}\n"), None), "no program");
+        assert!(!calls(&file(&zero), None), "a program whose argv names 0");
+        assert!(!calls(&file(&zero.replace("0\"", "0.000\"")), None), "0 written as 0.000");
+        assert!(calls(&file(&program("a", "tools/a.sh, --max-budget-usd, \"0.01\"")), None), "a program whose argv names 0.01");
+        assert!(calls(&file(&program("a", "tools/a.sh, --max-budget-usd=0.5")), None), "the joined form");
+        assert!(!calls(&file("  - action: a\n    max_budget_usd: 0\n    executor: {kind: program, argv: [tools/a.sh]}\n"), None), "the action's member 0");
+        assert!(!calls(&format!("format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n{}", program("a", "tools/a.sh")), None), "the file's member 0");
+        assert!(calls(&format!("format: loom.bindings/1\nmax_budget_usd: 0.2\nactions:\n{}", program("a", "tools/a.sh")), None), "the file's member 0.2");
+        // the argv's budget comes before the member, as a run reserves it
+        assert!(calls(&format!("format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n{}", program("a", "tools/a.sh, --max-budget-usd, \"0.3\"")), None), "an argv 0.3 beside a file member 0");
+        // a program that names no budget reserves the largest of the runbook
+        assert!(!calls(&file(&format!("{zero}{}", program("b", "tools/b.sh"))), None), "an unnamed program where the largest is 0");
+        assert!(calls(&file(&format!("{zero}{}{open}", program("b", "tools/b.sh"))), Some(&file(&program("c", "tools/c.sh, --max-budget-usd, \"0.3\"")))), "an unnamed program where a child names 0.3");
+        // an agent node calls a model whatever its budget
+        assert!(calls(&file(&program("n", "tools/sdc-node, n, --max-budget-usd, \"0\"")), None), "an agent node with budget 0");
+        // a child's program counts; the root's member does not reach it
+        assert!(calls(&format!("format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n{open}"), Some(&file(&program("c", "tools/c.sh, --max-budget-usd, \"0.3\"")))), "a child's program with 0.3");
+        assert!(!calls(&file(&format!("{zero}{open}")), Some(&format!("format: loom.bindings/1\nmax_budget_usd: 0\nactions:\n{}", program("c", "tools/c.sh")))), "a child whose file member is 0");
+        // bindings a run is refused for are taken to call a model (the run is refused at load all the same)
+        assert!(calls(&file(&program("a", "tools/a.sh")), None), "a program no budget covers");
+        assert!(calls(&file("  - action: a\n    max_budget_usd: -1\n    executor: {kind: program, argv: [tools/a.sh]}\n"), None), "a refused member");
     }
 
     #[test]

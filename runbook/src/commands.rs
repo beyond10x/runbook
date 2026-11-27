@@ -559,8 +559,9 @@ fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &s
 /// The run's route as the handler resolves it at the submit (`docs/model-routes.md`, sections 2 and 11): the route of
 /// each role and the record of it, or none for a run that takes no route; `Err` is the reason of `route-refused`. The
 /// run's word comes first (`model_route`, `model_routes.<role>`), then `route_policy.default`. A run may take a route
-/// when its decider is the kind model above A0 or its runbook runs a program (`runs_programs`: a bound program or an
-/// agent node, each of which may call a model through the route file). Any other run makes no model call: it takes no
+/// only when it has a model step: its decider is the kind model above A0, or a program of its runbook calls a model
+/// through the route file (`programs_call`: an agent node, or a program whose per-call budget is above 0,
+/// `crate::budget::calls_a_model`). Any other run makes no model call: it takes no
 /// route, is refused when it names one (the reason names the member), and the default is not applied to it. A run
 /// whose model calls come from its programs only and that names no route takes `route_policy.default` only when the
 /// file declares one and the relay serves runs (`serves_routes`); else it takes none and runs as before routes. A
@@ -570,7 +571,7 @@ fn route_name_refusal(routes: &crate::routes::RouteTable, member: &str, name: &s
 /// routes) adds its word between the run's and the default (`crate::admission::for_run`): its entry for a role the run
 /// names none for, its entry for the role `default` before `route_policy.default`, and every route of the run within its
 /// `routes_allowed`.
-fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs: bool, serves_routes: bool, protocol: Option<&ProtocolWord>) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
+fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, programs_call: bool, serves_routes: bool, protocol: Option<&ProtocolWord>) -> Result<Option<(RunRoute, crate::relay::RouteTable)>, String> {
     let routes = &policy.routes;
     let roles = input.model_routes.clone().unwrap_or_default();
     if let Some(name) = &input.model_route {
@@ -593,14 +594,14 @@ fn route_of_run(policy: &Policy, input: &SubmitRun, terms: &Terms, runs_programs
         }
     }
     let decider_calls = terms.makes_model_calls();
-    if !decider_calls && !runs_programs {
+    if !decider_calls && !programs_call {
         let member = match (&input.model_route, roles.keys().next()) {
             (Some(_), _) => Some("model_route".to_owned()),
             (None, Some(role)) => Some(format!("model_routes.{role}")),
             (None, None) => None,
         };
         if let Some(member) = member {
-            return Err(format!("{member} names a route, and the run makes no model call (its runbook runs no bound program and no agent node, and its decider is not the kind model at a level above A0): a submit for such a run names no route"));
+            return Err(format!("{member} names a route, and the run makes no model call (its runbook runs no agent node and no program whose per-call budget is above 0, and its decider is not the kind model at a level above A0): a submit for such a run names no route"));
         }
         return Ok(None);
     }
@@ -1296,8 +1297,8 @@ impl Daemon {
         }
         // The run's model route: the submit's word, then the runbook's route entries, then the daemon's default; a refusal
         // lists the declared routes.
-        let runs_programs = self.inner.runtime.runs_programs(&input.runbook_id, input.runbook_version.as_deref());
-        let route = self.protocol_word(&input.runbook_id, input.runbook_version.as_deref()).and_then(|word| route_of_run(&self.inner.policy, &input, &terms, runs_programs, self.inner.runtime.serves_routes(), word.as_ref()));
+        let programs_call = self.inner.runtime.programs_call_a_model(&input.runbook_id, input.runbook_version.as_deref());
+        let route = self.protocol_word(&input.runbook_id, input.runbook_version.as_deref()).and_then(|word| route_of_run(&self.inner.policy, &input, &terms, programs_call, self.inner.runtime.serves_routes(), word.as_ref()));
         let route = match route {
             Ok(route) => route,
             Err(reason) => return refused("route-refused", json!({"run_id": run_id, "reason": reason, "declared": self.inner.policy.routes.names()})),

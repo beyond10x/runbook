@@ -1,10 +1,11 @@
 //! A run names a model route (`docs/model-routes.md`, section 2; story `run-names-a-model-route`): a submit names a
 //! route of the daemon's `runbook.toml` by name in `model_route` (and per role in `model_routes`), else the run takes
 //! `route_policy.default`; the run's calls go through the daemon's relay to that route's gateway with its alias, and
-//! the run's record names the route, the alias and the setting that chose it. A run takes a route when its decider is
-//! a model above A0 or its runbook runs a program (its bound programs get the route file). A route that is not
-//! declared, an address, a token or an alias in its place, a route for a run that makes no model call (no program, no
-//! model decider), and a model run with no route on a daemon with no default are refused `422 route-refused` before
+//! the run's record names the route, the alias and the setting that chose it. A run takes a route only when it has a
+//! model step: its decider is a model above A0, or its runbook runs an agent node or a program whose per-call budget is
+//! above 0 (its bound programs get the route file; story `the-default-route-wakes-for-runs-without-a-model-call`). A
+//! route that is not declared, an address, a token or an alias in its place, a route for a run that makes no model call
+//! (no model step), and a model run with no route on a daemon with no default are refused `422 route-refused` before
 //! anything is written, listing the declared routes.
 //!
 //! No model is called and nothing leaves loopback: the gateways are stand-ins on ports of the test's own, the model
@@ -12,7 +13,7 @@
 
 use super::default_confinement::{post, rows, Live};
 use super::gateway::{claude_calling, claude_cli, entries, home, model_table, serve, until_state, wait_until, write_exe, Home, TOKEN};
-use super::relay::{gateway_listing, got, Gateway};
+use super::relay::{gateway_listing, gateway_with_status, got, Gateway};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -354,8 +355,8 @@ fn the_model_route_of_a_run_on_a_lone_gateway_is_a_route_the_view_routes_lists()
     assert!(listed.contains(&r["model_route"]), "the run references the route {} and the view routes lists {listed:?}", r["model_route"]);
 }
 
-/// A runtime whose runbooks run a program and whose relay serves runs or not (`Runtime::serves_routes`): it keeps the
-/// start request of each run and ends it.
+/// A runtime whose runbooks run a program that calls a model and whose relay serves runs or not
+/// (`Runtime::serves_routes`): it keeps the start request of each run and ends it.
 struct Programs {
     serves: bool,
     started: std::sync::Mutex<Vec<runbook::runtime::StartRequest>>,
@@ -374,7 +375,7 @@ impl runbook::runtime::Runtime for Programs {
     fn kind(&self) -> &'static str {
         "stub"
     }
-    fn runs_programs(&self, _runbook: &str, _version: Option<&str>) -> bool {
+    fn programs_call_a_model(&self, _runbook: &str, _version: Option<&str>) -> bool {
         true
     }
     fn serves_routes(&self) -> bool {
@@ -421,4 +422,88 @@ fn a_program_run_takes_the_declared_default_only_where_the_relay_serves_runs() {
     assert_eq!(take(true, None), Some(Some("c".to_owned())), "a program run on a daemon whose relay serves runs takes the declared default");
     assert_eq!(take(false, None), None, "a program run on a daemon whose relay serves no run took the default route, so it would not start");
     assert_eq!(take(false, Some("c")), Some(Some("c".to_owned())), "a route the run names is its own word");
+}
+
+/// What the stand-in of a stopped managed model answers to a wake, and to any other request it keeps.
+const WOKE: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 20\r\nConnection: close\r\n\r\n{\"phase\":\"starting\"}";
+const WAKE_M: &str = "POST /v1/models/alias-m/wake";
+
+/// A stand-in gateway of the managed route `m` (alias `alias-m`): it is ready, lists the alias, says in `GET /v1/status`
+/// that the model is stopped, and keeps every other request (a wake, a call) and answers it 200.
+fn stopped_gateway() -> Gateway {
+    gateway_with_status(|_| WOKE.to_vec(), &["alias-m"], json!({"models": [{"model": "alias-m", "callable": false, "phase": "stopped"}]}))
+}
+
+/// A daemon file whose one route `m` is managed, waits 600 s for its model, is woken at a submit within a daily wake cap,
+/// and is `route_policy.default`.
+fn waking_default(gw: &Gateway, token_file: &Path) -> String {
+    format!(
+        "[gateways.one]\nbase_url = \"{}\"\ntoken_file = \"{}\"\n[routes.m]\ngateway = \"one\"\nmodel = \"alias-m\"\nkind = \"managed\"\nstart_wait_seconds = 600\nwake_on_submit = true\nwake_daily_cap_micro_usd = 5000000\nwake_cost_micro_usd = 1000\n[route_policy]\ndefault = \"m\"\n{}{RULE}",
+        gw.base_url,
+        token_file.display(),
+        model_table(Some(&claude_cli()))
+    )
+}
+
+/// The request lines the gateway kept: every request but its reads.
+fn kept_lines(g: &Gateway) -> Vec<String> {
+    got(g).iter().map(|x| x.head.lines().next().unwrap_or("").rsplit_once(' ').map(|(l, _)| l.to_owned()).unwrap_or_default()).collect()
+}
+
+fn route_and_source(r: &Value) -> (Value, Value) {
+    (r.get("model_route").cloned().unwrap_or(Value::Null), r.get("model_route_source").cloned().unwrap_or(Value::Null))
+}
+
+/// A run whose decider or one of whose programs calls a model is on the route `m` by the default, waits for it, and its
+/// one wake reaches the gateway.
+fn woke_by_default(l: &Live, gw: &Gateway, run: &str) {
+    let r = until_state(l, run, &["WaitingForRoute"]);
+    assert_eq!(route_and_source(&r), (json!("m"), json!("default")), "{r}");
+    wait_until("the wake of the route m", || kept_lines(gw).iter().any(|x| x == WAKE_M));
+    assert_eq!(kept_lines(gw), vec![WAKE_M.to_owned()], "one wake and no call");
+}
+
+/// Story `the-default-route-wakes-for-runs-without-a-model-call`, points 1 and 3 of the brief: a runbook whose bound
+/// programs all name the per-call budget 0 has no model step. Under a `route_policy.default` that names a stopped managed
+/// route with `wake_on_submit`, its run with a rule decider takes no route (its record names none), books and sends no
+/// wake, waits for no route and runs to its end; a submit of it that names the route is refused, as for a runbook with
+/// no program. Point 2: the same runbook under a model decider has a model step, takes the default and wakes it.
+#[test]
+fn a_run_with_no_model_step_takes_no_default_route_and_wakes_nothing_and_runs_to_its_end() {
+    let h = home("rr-quiet");
+    let bindings = h.home.join("bindings/autonomy-demo.yaml");
+    let text = std::fs::read_to_string(&bindings).unwrap();
+    assert!(text.contains("--max-budget-usd, \"0.01\""), "the fixture's one budget moved: {text}");
+    std::fs::write(&bindings, text.replace("\"0.01\"", "\"0\"")).unwrap();
+    let gw = stopped_gateway();
+    let l = serve("rr-quiet-d", &h, &waking_default(&gw, &h.token_file), true);
+
+    let run = submitted(&l, "rule", json!({}));
+    assert_eq!(route_and_source(&row(&l, &run)), (Value::Null, Value::Null), "the default route went to a run with no model step");
+    ended(&l, &run);
+    for kind in ["runbook.route-wake", "runbook.route-wake-answered", "runbook.waiting-for-route"] {
+        assert_eq!(events(&l, &run, kind), Vec::<Value>::new(), "{kind}");
+    }
+    assert_eq!(kept_lines(&gw), Vec::<String>::new(), "the gateway was sent a wake or a call");
+
+    let (status, body) = submit_with(&l, "rule", json!({"model_route": "m"}));
+    assert_eq!((status, body["outcome"].clone()), (422, json!("route-refused")), "{body}");
+    let reason = body["payload"]["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("model_route") && reason.contains("makes no model call"), "{reason}");
+    assert_eq!(rows(&l, "/daemon/views/runs").len(), 1, "a refused submit made a run");
+    assert_eq!(kept_lines(&gw), Vec::<String>::new(), "a refused submit woke the route");
+
+    let model = submitted(&l, "model", json!({}));
+    woke_by_default(&l, &gw, &model);
+}
+
+/// Point 2 of the brief: a runbook whose bound program names a per-call budget above 0 has a model step. Its run with a
+/// rule decider takes the default route as before and wakes it.
+#[test]
+fn a_rule_run_whose_program_names_a_budget_above_0_takes_the_default_route_and_wakes_it() {
+    let h = home("rr-woken");
+    let gw = stopped_gateway();
+    let l = serve("rr-woken-d", &h, &waking_default(&gw, &h.token_file), true);
+    let run = submitted(&l, "rule", json!({}));
+    woke_by_default(&l, &gw, &run);
 }

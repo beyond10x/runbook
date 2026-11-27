@@ -918,11 +918,11 @@ impl Runtime for Engine {
         self.caps.resolve(settings).map(Some)
     }
 
-    /// A program of the bindings the run would read, the root's or a child's (`budget::runbook_budgets`); a runbook whose
-    /// bindings cannot be read is taken to run one (its run is refused at load all the same).
-    fn runs_programs(&self, runbook: &str, version: Option<&str>) -> bool {
+    /// A program of the bindings the run would read, the root's or a child's, that may call a model
+    /// (`budget::calls_a_model`).
+    fn programs_call_a_model(&self, runbook: &str, version: Option<&str>) -> bool {
         let Ok(resolved) = layout::resolve_in(&self.homes, runbook, version) else { return false };
-        crate::budget::runbook_budgets(&resolved.bindings).map_or(true, |b| !b.programs.is_empty())
+        crate::budget::calls_a_model(&resolved.bindings)
     }
 
     fn serves_routes(&self) -> bool {

@@ -117,8 +117,9 @@ pub struct Terms {
 
 impl Terms {
     /// Whether the decider of a run with these terms makes model calls: it is the kind `model` at a level above `A0`.
-    /// Such a run takes a model route (`docs/model-routes.md`, section 2), and so does a run whose runbook runs a program
-    /// (`Runtime::runs_programs`); any other run takes none, and a submit for it that names one is refused.
+    /// Such a run takes a model route (`docs/model-routes.md`, section 2), and so does a run whose runbook has a program
+    /// that calls a model (`Runtime::programs_call_a_model`); any other run takes none, and a submit for it that names one
+    /// is refused.
     pub fn makes_model_calls(&self) -> bool {
         self.decider.as_deref() == Some("model") && self.autonomy.is_some_and(|l| l != Autonomy::A0)
     }
@@ -440,11 +441,12 @@ pub trait Runtime: Send + Sync + 'static {
         None
     }
 
-    /// Whether a run of the runbook runs a program: a bound program or an agent node of its bindings (the root's or a
-    /// child's), any of which may call a model through the run's route file (`docs/model-routes.md`, section 11). Such a
-    /// run may take a model route whatever its decider. Asked at submit. The default (the stub, whose runbooks are
-    /// scripts that call no model): no.
-    fn runs_programs(&self, _runbook: &str, _version: Option<&str>) -> bool {
+    /// Whether a run of the runbook has a model step among its programs: an agent node, or a bound program whose per-call
+    /// budget is above 0, of its bindings (the root's or a child's; `crate::budget::calls_a_model`), which calls a model
+    /// through the run's route file (`docs/model-routes.md`, sections 2 and 11). Such a run may take a model route whatever
+    /// its decider; a program whose budget is 0 calls no model and gives the run no route. Asked at submit. The default
+    /// (the stub, whose runbooks are scripts that call no model): no.
+    fn programs_call_a_model(&self, _runbook: &str, _version: Option<&str>) -> bool {
         false
     }
 

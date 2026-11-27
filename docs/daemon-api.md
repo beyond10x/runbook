@@ -267,10 +267,13 @@ A row names the gateway by name; no address, port, token, token file or price is
 
 A `submit-run` names the route of its model calls by `model_route` (a declared route name) and, for a role that
 takes another, `model_routes` (a map from role to route name; the role `default` is the run's own). The run's
-word wins; a run that names none takes `[route_policy] default`. A run may take a route when it can make model
-calls: its decider kind is `model` and its autonomy is above `A0`, or its runbook runs a program (a bound program or
-an agent node, of its root bindings or a child's), which reaches a model through the run's route file
-(`RUNBOOK_ROUTE_FILE`, below). A run whose model calls come from its programs only and that names no route takes `[route_policy] default` only
+word wins; a run that names none takes `[route_policy] default`. A run may take a route only when it has a model
+step: its decider kind is `model` and its autonomy is above `A0`, or a bound program of its runbook (of its root
+bindings or a child's) calls a model through the run's route file (`RUNBOOK_ROUTE_FILE`, below): an agent node, or a
+program whose per-call budget, read as the run reserves it, is above 0 (its `--max-budget-usd`, else `max_budget_usd`
+of its action, else of its file, else the largest of the runbook; `max_budget_usd: 0` is a program that calls no
+model; `docs/model-routes.md`, section 2). A run with no model step takes no route, sends and books no wake and waits
+for none. A run whose model calls come from its programs only and that names no route takes `[route_policy] default` only
 when the file declares one and the daemon serves the relay (a loopback listener, below); else it takes none, is
 not refused and runs as before routes. The interim route `default` of a lone `[gateway]` goes to a run whose
 decider is `model` above `A0` only: a submit for any other run that names it is refused `route-refused`, the reason
@@ -285,8 +288,9 @@ A submit is refused `422 route-refused` (error `RouteRefused`: `run_id`, `reason
 names), and nothing is written, when it names a route the daemon does not declare, an alias of a gateway's model
 instead of a route, an address (a value with `/` or `:`), a value that is no route name (a token, or any other
 text that is not 1 to 64 letters, digits, `.`, `_` or `-`), an empty name, the role `default` or a role that is
-no name in `model_routes`, or a route at all for a run that makes no model call (its runbook runs no program and no
-agent node, and its decider is not `model` above `A0`; the default is not applied to such a run); and when a run
+no name in `model_routes`, or a route at all for a run that makes no model call (it has no model step: its runbook
+runs no agent node and no program whose per-call budget is above 0, and its decider is not `model` above `A0`; the
+default is not applied to such a run); and when a run
 whose decider is `model` above `A0` names none while routes are declared and no `[route_policy] default` is. The `reason` names the member
 (`model_route`, `model_routes.<role>`) and why, and never the value. `model_route_alias`, `model_route_source` and
 `route_refused` are filled by the daemon: a submit that sends one is refused `400` by its name. A daemon with only
