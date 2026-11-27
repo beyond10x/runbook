@@ -68,6 +68,7 @@ pub fn request(run: &str, runbook: &str) -> StartRequest {
         routes: None,
         model_route: None,
         admit: None,
+        worktree: None,
     }
 }
 

@@ -202,10 +202,10 @@ const AGENT_NODES: [&str; 14] = [
 
 /// The goldens that `sdc_node.rs` compares in its own cases (a ticket, no gate, feedback, the review
 /// on a coverage document, the implementer sent back or asked again, ...).
-const VARIANT_GOLDENS: [&str; 13] = [
+const VARIANT_GOLDENS: [&str; 14] = [
     "change.fix.ticket", "test.reproduce.ticket", "change.fix.no-gate", "change.fix.feedback", "change.review.coverage",
     "change.review.facts", "change.review.retry", "change.implement.coverage", "change.implement.rework",
-    "change.implement.rework-coverage", "change.implement.coverage-retry", "delegation.free", "delegation.step",
+    "change.implement.rework-coverage", "change.implement.coverage-retry", "delegation.free", "delegation.step", "delegation.change",
 ];
 
 /// Each agent node's prompt, written by the program `sdc-node` under Loom (one start per node, on

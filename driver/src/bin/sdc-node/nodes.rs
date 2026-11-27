@@ -205,6 +205,16 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             };
             Ok(Built::new("result.md", None, c.render_part("task", &[("request", &request), ("step", &step)])?))
         }
+        "delegation.change" => {
+            // A delegation that changes a repository: the request is the task; the files are the worktree the node works in,
+            // so nothing is copied in (`runbook/src/handback.rs`).
+            let request = yaml::load(&work.join("request.yaml")).map(|d| yaml::text(yaml::get(&d, "text"))).unwrap_or_default();
+            if request.trim().is_empty() {
+                return Err(die(format!("llm-node: {} could not run: the workspace holds no request (request.yaml with a text)", c.node), 126));
+            }
+            inp.notes(&c.render("instructions/delegation.change.inputs.md", &[])?);
+            Ok(Built::new("result.md", None, c.render_part("task", &[("request", &request)])?))
+        }
         "change.review" => crate::review::inputs(c, rec, cwd, inp),
         "change.implement" => crate::implement::inputs(c, rec, cwd, inp),
         "test.reproduce" => {

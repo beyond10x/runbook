@@ -152,6 +152,10 @@ enum ParityCmd {
 const USAGE_ERROR: u8 = 64;
 
 fn main() -> ExitCode {
+    // git asks the daemon's own program for the push credential of a repository entry (`runbook::handback::askpass`)
+    if let Some(code) = runbook::handback::askpass() {
+        return code;
+    }
     if let Some(path) = assets::Lookup::from_process().path_with_libexec() {
         std::env::set_var("PATH", path);
     }
@@ -227,6 +231,12 @@ fn main() -> ExitCode {
                 }
                 args.routes = std::sync::Arc::new(routes);
                 args.classify_threshold = f.classify_threshold;
+                // the repositories a delegation may change: each token file is checked now, and read by the askpass at a push
+                if let Err(e) = f.repositories.check_token_files() {
+                    eprintln!("runbook serve: {}", config::printable(&e));
+                    return ExitCode::from(loom_run::EXIT_REFUSED);
+                }
+                args.repositories = std::sync::Arc::new(f.repositories.clone());
             }
             if let Some(f) = file.as_ref().filter(|f| !f.deciders.is_empty()) {
                 let limits = loom_run::arbiter::Limits {

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:a-delegation-changes-a-repository-on-its-own-branch
 kind: story
-status: draft
+status: active
 title: A delegation changes a repository on its own branch and hands back a merge request
 summary: A delegation names an allowed repository; its agent works in a managed worktree on runbook/<run-id>; the daemon commits, pushes and opens a draft merge request
 tags:
@@ -12,7 +12,10 @@ relations:
 - informed_by: story:bugfix-hands-back-a-branch-and-a-merge-request
 - informed_by: story:daemon-takes-a-delegation
 - informed_by: story:route-runs-at-linux-confinement
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T14:13:26Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T14:13:26Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
@@ -192,3 +195,22 @@ file, and no network beyond loopback:
   - `story:daemon-takes-a-delegation`;
   - `story:route-runs-at-linux-confinement` (item 7).
 - The operator decides item 9 before this story is proposed.
+
+## Decision
+
+The operator's pick A, 2026-11-27 15:2x CET (relayed by the host's operator session): build the first slice only:
+
+- the worktree made and finished by the daemon with the host's `worktree` CLI (design items 1, 8);
+- the branch `runbook/<run-id>` from the entry's configured `base` (item 3);
+- the daemon's commit under the entry's bot identity and the push of a new ref only: no force, no `+`, refused when a
+  changed path is in `deny_paths` (CI files) (item 4);
+- at confinement level `local` only, for repositories listed in `runbook.toml` (`[repositories.<name>]`, empty by
+  default).
+
+Not built; each comes back to the operator first:
+
+- the draft merge request and any forge client or forge token;
+- `linux` confinement and any Loom request;
+- sharing the step with the bug-fix runbook;
+- a base chosen by a delegation;
+- a fetch before create.
