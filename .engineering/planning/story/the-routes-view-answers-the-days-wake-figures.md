@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:the-routes-view-answers-the-days-wake-figures
 kind: story
-status: draft
+status: active
 title: The routes view answers each route's wake figures for the daemon's day
 summary: Booked wakes, wake cap, wake cost, last wake sent, wake needed and the last spend-ceiling refusal per route, in the views routes and catalog
 tags:
@@ -11,7 +11,10 @@ relations:
 - informed_by: story:route-wake-behind-a-daily-cap
 - informed_by: story:a-wake-is-booked-only-when-it-succeeds
 - informed_by: story:daemon-page-shows-the-route
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T22:03:34Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T22:03:35Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
