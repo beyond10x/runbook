@@ -375,8 +375,8 @@ impl runbook::runtime::Runtime for Programs {
     fn kind(&self) -> &'static str {
         "stub"
     }
-    fn programs_call_a_model(&self, _runbook: &str, _version: Option<&str>) -> bool {
-        true
+    fn program_steps(&self, _runbook: &str, _version: Option<&str>) -> runbook::runtime::ProgramSteps {
+        runbook::runtime::ProgramSteps::ModelCall
     }
     fn serves_routes(&self) -> bool {
         self.serves
@@ -463,38 +463,63 @@ fn woke_by_default(l: &Live, gw: &Gateway, run: &str) {
     assert_eq!(kept_lines(gw), vec![WAKE_M.to_owned()], "one wake and no call");
 }
 
-/// Story `the-default-route-wakes-for-runs-without-a-model-call`, points 1 and 3 of the brief: a runbook whose bound
-/// programs all name the per-call budget 0 has no model step. Under a `route_policy.default` that names a stopped managed
-/// route with `wake_on_submit`, its run with a rule decider takes no route (its record names none), books and sends no
-/// wake, waits for no route and runs to its end; a submit of it that names the route is refused, as for a runbook with
-/// no program. Point 2: the same runbook under a model decider has a model step, takes the default and wakes it.
-#[test]
-fn a_run_with_no_model_step_takes_no_default_route_and_wakes_nothing_and_runs_to_its_end() {
-    let h = home("rr-quiet");
+/// A home whose runbook `autonomy-demo` has no model step: every bound program of it names the per-call budget 0.
+fn home_without_a_model_step(tag: &str) -> Home {
+    let h = home(tag);
     let bindings = h.home.join("bindings/autonomy-demo.yaml");
     let text = std::fs::read_to_string(&bindings).unwrap();
     assert!(text.contains("--max-budget-usd, \"0.01\""), "the fixture's one budget moved: {text}");
     std::fs::write(&bindings, text.replace("\"0.01\"", "\"0\"")).unwrap();
+    h
+}
+
+/// The run took no route (its record names none), booked and sent no wake, waited for no route and ran to its end, and
+/// nothing reached the gateway.
+fn took_no_route_and_ended(l: &Live, gw: &Gateway, run: &str) {
+    assert_eq!(route_and_source(&row(l, run)), (Value::Null, Value::Null), "a route went to a run with no model step");
+    ended(l, run);
+    for kind in ["runbook.route-wake", "runbook.route-wake-answered", "runbook.waiting-for-route"] {
+        assert_eq!(events(l, run, kind), Vec::<Value>::new(), "{kind}");
+    }
+    assert_eq!(kept_lines(gw), Vec::<String>::new(), "the gateway was sent a wake or a call");
+}
+
+/// Story `the-default-route-wakes-for-runs-without-a-model-call`, point 1 of the brief: a runbook whose bound programs all
+/// name the per-call budget 0 has no model step. Under a `route_policy.default` that names a stopped managed route with
+/// `wake_on_submit`, its run with a rule decider takes no route, books and sends no wake, waits for no route and runs to
+/// its end. Point 2: the same runbook under a model decider has a model step, takes the default and wakes it.
+#[test]
+fn a_run_with_no_model_step_takes_no_default_route_and_wakes_nothing_and_runs_to_its_end() {
+    let h = home_without_a_model_step("rr-quiet");
     let gw = stopped_gateway();
     let l = serve("rr-quiet-d", &h, &waking_default(&gw, &h.token_file), true);
 
     let run = submitted(&l, "rule", json!({}));
-    assert_eq!(route_and_source(&row(&l, &run)), (Value::Null, Value::Null), "the default route went to a run with no model step");
-    ended(&l, &run);
-    for kind in ["runbook.route-wake", "runbook.route-wake-answered", "runbook.waiting-for-route"] {
-        assert_eq!(events(&l, &run, kind), Vec::<Value>::new(), "{kind}");
-    }
-    assert_eq!(kept_lines(&gw), Vec::<String>::new(), "the gateway was sent a wake or a call");
-
-    let (status, body) = submit_with(&l, "rule", json!({"model_route": "m"}));
-    assert_eq!((status, body["outcome"].clone()), (422, json!("route-refused")), "{body}");
-    let reason = body["payload"]["reason"].as_str().unwrap_or_default();
-    assert!(reason.contains("model_route") && reason.contains("makes no model call"), "{reason}");
-    assert_eq!(rows(&l, "/daemon/views/runs").len(), 1, "a refused submit made a run");
-    assert_eq!(kept_lines(&gw), Vec::<String>::new(), "a refused submit woke the route");
+    took_no_route_and_ended(&l, &gw, &run);
+    assert_eq!(events(&l, &run, "runbook.submitted")[0].get("model_route_not_taken"), None, "the run named no route");
 
     let model = submitted(&l, "model", json!({}));
     woke_by_default(&l, &gw, &model);
+}
+
+/// Point 3 of the brief, as the coordinator decided it: a run with no model step that names a route (its own
+/// `model_route` and a role's) is admitted, takes no route and wakes nothing, as one that names none; its first event
+/// `runbook.submitted` names the routes the submit asked for under `model_route_not_taken` and says why. A runbook with
+/// no program keeps its refusal (`a_run_whose_runbook_runs_no_program_and_whose_decider_is_no_model_is_refused_...`).
+#[test]
+fn a_run_with_no_model_step_that_names_a_route_is_admitted_takes_none_wakes_nothing_and_its_first_event_says_why() {
+    let h = home_without_a_model_step("rr-quiet-named");
+    let gw = stopped_gateway();
+    let l = serve("rr-quiet-named-d", &h, &waking_default(&gw, &h.token_file), true);
+
+    let run = submitted(&l, "rule", json!({"model_route": "m", "model_routes": {"writer": "m"}}));
+    took_no_route_and_ended(&l, &gw, &run);
+    let first = &events(&l, &run, "runbook.submitted")[0];
+    assert_eq!(first.get("model_route"), None, "{first}");
+    let not_taken = &first["model_route_not_taken"];
+    assert_eq!((not_taken["model_route"].clone(), not_taken["model_routes"].clone()), (json!("m"), json!({"writer": "m"})), "{first}");
+    let reason = not_taken["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("makes no model call"), "{first}");
 }
 
 /// Point 2 of the brief: a runbook whose bound program names a per-call budget above 0 has a model step. Its run with a

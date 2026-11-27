@@ -278,8 +278,14 @@ or per run config"; and on D-1, routes are declared "both" by the daemon and by 
   Route entries (`bindings/<runbook>.routes.yaml`) make no model step: they say which route a model step takes. A run
   with no model step (a person's actions only, or programs whose budget is 0, and a decider that is no model) takes
   no route: the default route is not applied to it, no wake is sent or booked for it, it does not wait for a route and
-  its programs get no route file. A submit for it that names a route is refused `route-refused`, the reason naming
-  the member (`model_route`, `model_routes.<role>`) and "the run makes no model call". A run whose model calls come
+  its programs get no route file. A submit for it that names a route (`model_route`, `model_routes.<role>`) is
+  admitted all the same and takes no route either: consumers name their route in every submit, and their runs without
+  a model step must not be refused (the coordinator's decision of 2026-11-27, which follows the operator's). Its first
+  event `runbook.submitted` names what the submit asked for and why it was not taken: `model_route_not_taken`, with
+  `model_route`, `model_routes` and `reason` ("the run makes no model call ..."). A name that is not a declared route
+  (an address, a token, an alias) is refused as for any run. Only a run whose runbook runs no bound program and no
+  agent node, and whose decider is no model above `A0`, is refused `route-refused` when it names a route, the reason
+  naming the member and "the run makes no model call", as before this rule. A run whose model calls come
   from its programs only and that names no route takes a declared `[route_policy] default` only, and only where the
   relay is served (a loopback listener); else it takes none and runs as before routes (built: `docs/daemon-api.md`,
   "The route of a run").

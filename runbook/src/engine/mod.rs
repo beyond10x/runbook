@@ -22,7 +22,7 @@ pub use decision::Parsed;
 pub use gate::{Cap, WallClock};
 
 use crate::caps::{CapPolicy, Caps, Usage};
-use crate::runtime::{AnswerFailure, Autonomy, CaseRow, Confinement, EventSink, Finish, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
+use crate::runtime::{AnswerFailure, Autonomy, CaseRow, Confinement, EventSink, Finish, ProgramSteps, Recovery, RunbookInfo, Runtime, RuntimeFailure, StartRequest};
 use arbiter::{Arbiter, Judgement, Opening as ArbiterOpening, RunArbiter};
 use b10x_loom_tree::model::{DecisionKind, TreeStop};
 use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
@@ -918,11 +918,18 @@ impl Runtime for Engine {
         self.caps.resolve(settings).map(Some)
     }
 
-    /// A program of the bindings the run would read, the root's or a child's, that may call a model
-    /// (`budget::calls_a_model`).
-    fn programs_call_a_model(&self, runbook: &str, version: Option<&str>) -> bool {
-        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, version) else { return false };
-        crate::budget::calls_a_model(&resolved.bindings)
+    /// The programs of the bindings the run would read, the root's or a child's (`budget::runbook_budgets`): one that may
+    /// call a model (`budget::calls_a_model`), else programs that call none, else none. A runbook whose bindings cannot be
+    /// read is taken to run one that calls a model (its run is refused at load all the same).
+    fn program_steps(&self, runbook: &str, version: Option<&str>) -> ProgramSteps {
+        let Ok(resolved) = layout::resolve_in(&self.homes, runbook, version) else { return ProgramSteps::NoProgram };
+        if crate::budget::calls_a_model(&resolved.bindings) {
+            ProgramSteps::ModelCall
+        } else if crate::budget::runbook_budgets(&resolved.bindings).is_ok_and(|b| b.programs.is_empty()) {
+            ProgramSteps::NoProgram
+        } else {
+            ProgramSteps::NoModelCall
+        }
     }
 
     fn serves_routes(&self) -> bool {

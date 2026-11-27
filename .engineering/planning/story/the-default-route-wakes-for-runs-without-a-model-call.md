@@ -7,7 +7,7 @@ title: The default route wakes a managed route for a run that makes no model cal
 summary: route_policy.default goes to every run with a bound program, so a wake_on_submit default wakes a paid model for runs that never call it
 relations:
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T10:38:24Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T10:38:24Z", actor: "agent:runbook", revision: 3}
@@ -74,8 +74,11 @@ The rule for a model step (Acceptance 3), read from what the daemon knows at sub
 
 Route entries (`bindings/<runbook>.routes.yaml`) do not make a model step: they say which route a model step takes.
 
-A run with no model step that names a route (`model_route`, `model_routes.<role>`) is refused `route-refused` naming
-the member and "the run makes no model call", as a runbook with no program already was: before this change such a run
-took the named route, and a stopped managed route with `wake_on_submit` was woken for it.
+A run with no model step that names a route (`model_route`, `model_routes.<role>`): the coordinator, 2026-11-27,
+following the operator's decision: it is admitted, takes no route and wakes nothing, and its first event
+`runbook.submitted` names the routes it asked for and why under `model_route_not_taken`. Consumers name their route in
+every submit; a refusal would break their runs without a model step at submit. A name that is not a declared route is
+refused as for any run. The refusal of a run whose runbook runs no program at all and whose decider is no model, when
+it names a route, stays as it was before this story; it is not widened.
 
 `runbook run --model-route` (in process) is not changed by this story: it sends no wake.
