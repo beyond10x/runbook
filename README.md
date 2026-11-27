@@ -184,12 +184,17 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.13.0`; nothing is published to crates.io. The latest is 0.13.0 (2026-11-26).
+`0.14.0`; nothing is published to crates.io. The latest is 0.14.0 (2026-11-27).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- Unreleased since 0.13.0 (`CHANGELOG.md`, [Unreleased]): `runbook` links Loom 0.63.0, and a release tag builds gnu and
-  static musl archives of an installed prefix ([docs/releasing.md](docs/releasing.md), "The archives").
+- New in 0.14.0 over 0.13.0 (nothing is unreleased): a release tag builds gnu and static musl archives of an installed
+  prefix ([docs/releasing.md](docs/releasing.md), "The archives"); `runbook` links Loom 0.63.0; a failed model call
+  booked after its step ended no longer fails a run, and a caller that hangs up ends its call at the gateway; a case of
+  a run ended at a cap shows the cap and not `Stuck`; the bindings checks leave out route files. One change is
+  breaking: a daemon run takes a model route, named or the default, only when it has a model step, so a run whose
+  programs all name the budget 0 takes no route and wakes nothing. No evaluation run was made on this code
+  ([docs/releases/0.14.0.md](docs/releases/0.14.0.md)).
 - New in 0.13.0 over 0.12.0: the daemon declares named model routes, starts a run only on a
   route that can answer, relays and books every model call of a run on a route, takes a delegation and lists what a
   delegation may name; a Claude Code session with the plugin delegates through it; the daemon's run page watches a
