@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:ecf1fdf4b38b32b51076c6a69658f5f52191368f92149e270e89501ef8a43865
+# contract digest slice-sha256/2:4e2e19c00a8a5e2bf46a18586f397fab99c6f8c24236110f25c28a9ff3f89893
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:ecf1fdf4b38b32b51076c6a69658f5f52191368f92149e270e89501ef8a43865
+    contract_digest: slice-sha256/2:4e2e19c00a8a5e2bf46a18586f397fab99c6f8c24236110f25c28a9ff3f89893
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -5140,7 +5140,7 @@ x-ess-entities:
         type: string
         format: date-time
       wake_needed:
-        description: 'True when the route''s wake is on (wake_on_submit), the phase of this row is `stopped`, a run that takes the route is WaitingForRoute, and no wake of the route is out or may be joined (one within the route''s start_wait_seconds that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day''s cap, was answered 4xx, or the wake the run joined is past its wait. False otherwise. Present with wake_cap_micro_usd.'
+        description: 'True when the route''s wake is on (wake_on_submit), the phase of this row is `stopped`, a run that takes the route (or a delegation the daemon classifies, on the classifier route) is WaitingForRoute, no wake of the route is out (sent, not answered yet, its run live, also past the wait) and none may be joined (one within the route''s start_wait_seconds that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day''s cap, was answered 4xx, or the wake the run joined is past its wait. False otherwise. Present with wake_cap_micro_usd.'
         type: boolean
       ceiling_refused_at:
         description: 'The instant of the newest answer `spend-ceiling` to a wake of the route on the day of the daemon''s clock: a run event `runbook.route-wake-answered`, or the daemon''s journal line `route.wake-answered` of a run closed before it came. Absent when there is none that day.'

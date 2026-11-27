@@ -1063,6 +1063,14 @@ fn day_booked(st: &State, routes: &crate::routes::RouteTable, name: &str, day: &
     (wakes_booked(st, name, day), pod)
 }
 
+/// Whether the run, while it waits for its routes, waits on `route`: it takes the route ([`takes_route`]), or it is a
+/// delegation the daemon classifies and `route` is the classifier route, which its wait reads with its own
+/// ([`route_wait`] with `also`).
+fn waits_on_route(routes: &crate::routes::RouteTable, run: &Run, route: &str) -> bool {
+    let classifies = run.runbook_id == crate::delegation::CLASSIFY_RUNBOOK && run.model_route.is_some() && routes.classifier() == Some(route);
+    takes_route(run, route) || classifies
+}
+
 /// The `at` of the newest answer `spend-ceiling` to a wake of `route` on `day`: a run event `runbook.route-wake-answered`,
 /// or the daemon's line `route.wake-answered` of a run closed before the answer came.
 fn ceiling_refused_at<'a>(st: &'a State, route: &str, day: &str) -> Option<&'a str> {
@@ -1077,8 +1085,9 @@ fn ceiling_refused_at<'a>(st: &'a State, route: &str, day: &str) -> Option<&'a s
 /// managed route that declares `wake_daily_cap_micro_usd`: `wake_booked_micro_usd`, `wake_cap_micro_usd`,
 /// `wake_cost_micro_usd`, `wake_last_sent_at`, `wake_needed` and `ceiling_refused_at`; for one that declares
 /// `price_per_hour_micro_usd`: `pod_booked_micro_usd`. Each is absent where it does not apply. The booked figures are
-/// [`day_booked`], what the cap of the next wake reads. `wake_needed`: the wake is on, the phase is `stopped`, a run that
-/// takes the route waits for it, and no wake of the route is out or may be joined ([`wake_sent_within`]): a run waits
+/// [`day_booked`], what the cap of the next wake reads. `wake_needed`: the wake is on, the phase is `stopped`, a run
+/// waits on the route ([`waits_on_route`]), no wake of the route is out (not answered yet, its run live, also past the
+/// route's wait) and none may be joined ([`wake_sent_within`]): a run waits
 /// and the daemon sends no wake for it.
 fn wake_figures(st: &State, routes: &crate::routes::RouteTable, name: &str, phase: Option<&str>) -> Map<String, Value> {
     let mut m = Map::new();
@@ -1094,9 +1103,11 @@ fn wake_figures(st: &State, routes: &crate::routes::RouteTable, name: &str, phas
         if let Some(last) = sent_wakes(st, name).last() {
             m.insert("wake_last_sent_at".into(), json!(last.at));
         }
-        let waits = || st.runs().iter().any(|r| r.state == RunState::WaitingForRoute && takes_route(r, name));
+        let waits = || st.runs().iter().any(|r| r.state == RunState::WaitingForRoute && waits_on_route(routes, r, name));
         let wait_millis = i64::try_from(route.start_wait_seconds.unwrap_or(0)).unwrap_or(i64::MAX / 2).saturating_mul(1000);
-        let needed = route.wake.on_submit && phase == Some("stopped") && waits() && wake_sent_within(st, name, now, wait_millis).is_none();
+        // a wake not answered yet whose run lives is out, also past the route's wait (the daemon waits up to 5 s for an answer)
+        let out = || sent_wakes(st, name).iter().any(|w| w.answer.is_none() && run_lives(st, w.run_id));
+        let needed = route.wake.on_submit && phase == Some("stopped") && waits() && !out() && wake_sent_within(st, name, now, wait_millis).is_none();
         m.insert("wake_needed".into(), json!(needed));
         if let Some(at) = ceiling_refused_at(st, name, &day) {
             m.insert("ceiling_refused_at".into(), json!(at));

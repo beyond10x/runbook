@@ -72,3 +72,4 @@ mod adversary_context_copy;
 mod adversary_w6;
 mod adversary_late_call;
 mod adversary_wake_booking;
+mod adversary_route_figures;

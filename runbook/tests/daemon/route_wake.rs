@@ -28,7 +28,7 @@ const WAKE: &str = "POST /v1/models/qwen/wake";
 /// One answer of the stand-in to a wake: a status and a body, or none (it holds the request open past the daemon's
 /// bound of 5 s for an answer, then closes it).
 #[derive(Clone)]
-enum WakeSaid {
+pub(super) enum WakeSaid {
     Answer(u16, Value),
     Silent,
     /// Answered with this status and body once the case lets it go (`Gateway::let_go`), at most 4 s after it came.
@@ -52,19 +52,19 @@ struct Said {
     held_answered: usize,
 }
 
-struct Gateway {
-    base_url: String,
+pub(super) struct Gateway {
+    pub(super) base_url: String,
     heads: Arc<Mutex<Vec<String>>>,
     said: Arc<Mutex<Said>>,
 }
 
 impl Gateway {
-    fn start(phase: &'static str, wake: (u16, Value)) -> Gateway {
+    pub(super) fn start(phase: &'static str, wake: (u16, Value)) -> Gateway {
         Gateway::start_with(phase, Vec::new(), wake)
     }
 
     /// A stand-in that answers the first wakes as `next` says, in order, and every later one `wake`.
-    fn start_with(phase: &'static str, next: Vec<WakeSaid>, wake: (u16, Value)) -> Gateway {
+    pub(super) fn start_with(phase: &'static str, next: Vec<WakeSaid>, wake: (u16, Value)) -> Gateway {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let base_url = format!("http://{}", listener.local_addr().unwrap());
         let said = Arc::new(Mutex::new(Said { phase, next: next.into(), wake, let_go: false, held_answered: 0 }));
@@ -125,7 +125,7 @@ impl Gateway {
     }
 
     /// Lets the held wakes be answered and waits until `n` of them were.
-    fn let_go(&self, n: usize) {
+    pub(super) fn let_go(&self, n: usize) {
         self.said.lock().unwrap().let_go = true;
         let limit = Instant::now() + Duration::from_secs(10);
         while self.said.lock().unwrap().held_answered < n {
@@ -134,7 +134,7 @@ impl Gateway {
         }
     }
 
-    fn set_phase(&self, phase: &'static str) {
+    pub(super) fn set_phase(&self, phase: &'static str) {
         self.said.lock().unwrap().phase = phase;
     }
 
@@ -156,12 +156,12 @@ impl Gateway {
         self.heads.lock().unwrap().iter().map(|h| h.lines().next().unwrap_or("").rsplit_once(' ').map(|(l, _)| l.to_owned()).unwrap_or_default()).collect()
     }
 
-    fn wakes(&self) -> usize {
+    pub(super) fn wakes(&self) -> usize {
         self.lines().iter().filter(|l| *l == WAKE).count()
     }
 
     /// Nothing but reads and wakes went to the gateway: no model call.
-    fn no_call(&self) {
+    pub(super) fn no_call(&self) {
         let lines = self.lines();
         assert!(lines.iter().all(|l| l.starts_with("GET ") || l == WAKE), "the gateway got a model call: {lines:?}");
     }
@@ -169,12 +169,12 @@ impl Gateway {
 
 /// A daemon on a test clock with the decider kind `model`, the stub runtime and two routes on `gw`: `qwen` (managed,
 /// waits 600 s, with the wake keys `wake`) and `claude` (hosted). The gateway's token file is in `dir`.
-fn daemon_in(dir: &Path, gw: &Gateway, wake: Value, clock: Arc<SetClock>) -> Daemon {
+pub(super) fn daemon_in(dir: &Path, gw: &Gateway, wake: Value, clock: Arc<SetClock>) -> Daemon {
     daemon_with(dir, gw, wake, json!({}), clock)
 }
 
 /// [`daemon_in`] with the routes of `extra` declared beside `qwen` and `claude`, on the same gateway.
-fn daemon_with(dir: &Path, gw: &Gateway, wake: Value, extra: Value, clock: Arc<SetClock>) -> Daemon {
+pub(super) fn daemon_with(dir: &Path, gw: &Gateway, wake: Value, extra: Value, clock: Arc<SetClock>) -> Daemon {
     std::fs::create_dir_all(dir.join("ctx")).unwrap();
     std::fs::create_dir_all(dir.join("runbooks")).unwrap();
     let token_file = dir.join("gateway-token");
@@ -202,17 +202,17 @@ fn daemon(tag: &str, gw: &Gateway, wake: Value) -> (Daemon, Arc<SetClock>) {
     (daemon_in(&dir, gw, wake, clock.clone()), clock)
 }
 
-fn submit(d: &Daemon, route: &str) -> String {
+pub(super) fn submit(d: &Daemon, route: &str) -> String {
     let o = d.submit_run(SubmitRun { runbook_id: "quick".into(), intake: "x".into(), autonomy: Some(Autonomy::A5), decider: Some("model".into()), model_route: Some(route.into()), ..SubmitRun::default() }).unwrap();
     assert_eq!(o.name, "submitted", "{o:?}");
     o.run_id.unwrap()
 }
 
-fn detail(d: &Daemon, run: &str) -> Value {
+pub(super) fn detail(d: &Daemon, run: &str) -> Value {
     d.run_detail(run)[0].clone()
 }
 
-fn until_state(d: &Daemon, run: &str, want: &str) -> Value {
+pub(super) fn until_state(d: &Daemon, run: &str, want: &str) -> Value {
     let limit = Instant::now() + Duration::from_secs(10);
     loop {
         let r = detail(d, run);
@@ -225,12 +225,12 @@ fn until_state(d: &Daemon, run: &str, want: &str) -> Value {
 }
 
 /// The records of the run's events of `kind`.
-fn records(d: &Daemon, run: &str, kind: &str) -> Vec<Value> {
+pub(super) fn records(d: &Daemon, run: &str, kind: &str) -> Vec<Value> {
     d.events_after(run, 0).into_iter().filter(|e| e["kind"] == kind).map(|e| e["record"].clone()).collect()
 }
 
 /// The records of the run's events of `kind`, once there is one.
-fn until_records(d: &Daemon, run: &str, kind: &str) -> Vec<Value> {
+pub(super) fn until_records(d: &Daemon, run: &str, kind: &str) -> Vec<Value> {
     let limit = Instant::now() + Duration::from_secs(10);
     loop {
         let r = records(d, run, kind);
@@ -242,7 +242,7 @@ fn until_records(d: &Daemon, run: &str, kind: &str) -> Vec<Value> {
     }
 }
 
-fn wake_on(cap: u64, cost: u64) -> Value {
+pub(super) fn wake_on(cap: u64, cost: u64) -> Value {
     json!({"wake_on_submit": true, "wake_daily_cap_micro_usd": cap, "wake_cost_micro_usd": cost})
 }
 
@@ -468,7 +468,7 @@ fn a_spend_ceiling_answer_ends_the_run_stopped_route_naming_the_ceiling() {
 }
 
 /// The records of the run's events of `kind`, once there are `n`.
-fn until_n_records(d: &Daemon, run: &str, kind: &str, n: usize) -> Vec<Value> {
+pub(super) fn until_n_records(d: &Daemon, run: &str, kind: &str, n: usize) -> Vec<Value> {
     let limit = Instant::now() + Duration::from_secs(15);
     loop {
         let r = records(d, run, kind);
@@ -602,14 +602,14 @@ fn a_wake_with_no_answer_books_nothing_and_is_sent_again_after_the_pause() {
 // ---- story a-managed-route-books-its-pods-measured-time ----
 
 /// The wake keys of `wake_on` and the pod's price per hour, 3.00 USD.
-fn priced(cap: u64, cost: u64) -> Value {
+pub(super) fn priced(cap: u64, cost: u64) -> Value {
     let mut wake = wake_on(cap, cost);
     wake["price_per_hour_micro_usd"] = json!(3_000_000);
     wake
 }
 
 /// A run of the runbook `held` on `route`: it waits on one decision until [`answer`] ends it.
-fn submit_held(d: &Daemon, route: &str) -> String {
+pub(super) fn submit_held(d: &Daemon, route: &str) -> String {
     let o = d.submit_run(SubmitRun { runbook_id: "held".into(), intake: "x".into(), autonomy: Some(Autonomy::A5), decider: Some("model".into()), model_route: Some(route.into()), ..SubmitRun::default() }).unwrap();
     assert_eq!(o.name, "submitted", "{o:?}");
     let run = o.run_id.unwrap();
@@ -618,7 +618,7 @@ fn submit_held(d: &Daemon, route: &str) -> String {
 }
 
 /// Answers the decision of a run of `held`, and waits until the run ended.
-fn answer(d: &Daemon, run: &str) -> Value {
+pub(super) fn answer(d: &Daemon, run: &str) -> Value {
     let o = d.answer_decision(AnswerDecision { run_id: run.into(), request_id: format!("{run}-q1"), answer: "A".into(), answered_by: "operator".into() }).unwrap();
     assert!(!o.is_refusal(), "{o:?}");
     until_state(d, run, "Ended")
@@ -757,7 +757,7 @@ fn a_run_orphaned_at_a_restart_books_the_pod_time_up_to_the_orphan_mark() {
 }
 
 /// Waits until the stand-in got `n` wakes.
-fn until_wakes(gw: &Gateway, n: usize) {
+pub(super) fn until_wakes(gw: &Gateway, n: usize) {
     let limit = Instant::now() + Duration::from_secs(10);
     while gw.wakes() < n {
         assert!(Instant::now() < limit, "the stand-in got {} wakes, not {n}: {:?}", gw.wakes(), gw.lines());
@@ -766,7 +766,7 @@ fn until_wakes(gw: &Gateway, n: usize) {
 }
 
 /// The journal's lines `route.wake-answered` of the state directory `state`, once there is one or 2 s passed.
-fn wake_answer_lines(state: &Path) -> Vec<Value> {
+pub(super) fn wake_answer_lines(state: &Path) -> Vec<Value> {
     let limit = Instant::now() + Duration::from_secs(2);
     loop {
         let lines: Vec<Value> = super::state::journal_facts(state).into_iter().filter(|f| f["fact"] == "route.wake-answered").collect();
@@ -850,35 +850,35 @@ fn a_pod_price_on_a_route_that_is_not_managed_is_refused_at_start_by_name() {
 // ---- story the-routes-view-answers-the-days-wake-figures ----
 
 /// The members of a route row that answer the wake and pod figures of the daemon's day.
-const FIGURES: [&str; 7] = ["wake_booked_micro_usd", "wake_cap_micro_usd", "wake_cost_micro_usd", "wake_last_sent_at", "wake_needed", "ceiling_refused_at", "pod_booked_micro_usd"];
+pub(super) const FIGURES: [&str; 7] = ["wake_booked_micro_usd", "wake_cap_micro_usd", "wake_cost_micro_usd", "wake_last_sent_at", "wake_needed", "ceiling_refused_at", "pod_booked_micro_usd"];
 
 /// The row of `route` in the view `routes`.
-fn route_row(d: &Daemon, route: &str) -> Value {
+pub(super) fn route_row(d: &Daemon, route: &str) -> Value {
     d.routes().into_iter().find(|r| r["route"] == route).unwrap_or_else(|| panic!("the view routes has no row {route}"))
 }
 
 /// Each member of [`FIGURES`] of `row`, null when the row has none.
-fn figures_of(row: &Value) -> Value {
+pub(super) fn figures_of(row: &Value) -> Value {
     Value::Object(FIGURES.iter().map(|k| ((*k).to_owned(), row.get(*k).cloned().unwrap_or(Value::Null))).collect())
 }
 
-fn figures(d: &Daemon, route: &str) -> Value {
+pub(super) fn figures(d: &Daemon, route: &str) -> Value {
     figures_of(&route_row(d, route))
 }
 
 /// The figures of a managed route with its wake keys and no pod price.
-fn want(booked: u64, cap: u64, cost: u64, last: Option<&str>, needed: bool, ceiling: Option<&str>) -> Value {
+pub(super) fn want(booked: u64, cap: u64, cost: u64, last: Option<&str>, needed: bool, ceiling: Option<&str>) -> Value {
     json!({"wake_booked_micro_usd": booked, "wake_cap_micro_usd": cap, "wake_cost_micro_usd": cost, "wake_last_sent_at": last, "wake_needed": needed, "ceiling_refused_at": ceiling, "pod_booked_micro_usd": null})
 }
 
 /// The instants of the run's events of `kind`.
-fn ats(d: &Daemon, run: &str, kind: &str) -> Vec<String> {
+pub(super) fn ats(d: &Daemon, run: &str, kind: &str) -> Vec<String> {
     d.events_after(run, 0).into_iter().filter(|e| e["kind"] == kind).map(|e| e["at"].as_str().unwrap().to_owned()).collect()
 }
 
 /// The row of `route` of the view `routes`, once its phase is `phase` (the view reads the gateway again 15 s of the
 /// daemon's clock after its last read, in the background).
-fn until_phase(d: &Daemon, route: &str, phase: &str) -> Value {
+pub(super) fn until_phase(d: &Daemon, route: &str, phase: &str) -> Value {
     let limit = Instant::now() + Duration::from_secs(10);
     loop {
         let row = route_row(d, route);

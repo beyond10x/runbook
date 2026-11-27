@@ -11,7 +11,7 @@ relations:
 - informed_by: story:route-wake-behind-a-daily-cap
 - informed_by: story:a-wake-is-booked-only-when-it-succeeds
 - informed_by: story:daemon-page-shows-the-route
-revision: 5
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T22:03:34Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T22:03:35Z", actor: "agent:runbook", revision: 3}
@@ -67,8 +67,9 @@ What runbook has today (origin/main `76551cdd`):
      part).
    - `wake_last_sent_at`: the `at` of the newest sent `runbook.route-wake` of the route, on any day.
    - `wake_needed`: a run waits on the route and the daemon sends no wake for it. True when the route's wake is on
-     (`wake_on_submit`), the phase the view last read of the route is `stopped`, a run that takes the route is
-     `WaitingForRoute`, and no wake of the route is out or may be joined (`wake_sent_within` over the route's
+     (`wake_on_submit`), the phase the view last read of the route is `stopped`, a run that takes the route (or a delegation the daemon classifies, on the classifier route) is
+     `WaitingForRoute`, no wake of the route is out (sent, not answered yet, its run live, also past the route's wait)
+     and none may be joined (`wake_sent_within` over the route's
      `start_wait_seconds`: a wake the gateway took or answered `spend-ceiling`, or one out, failed or not answered
      while its run lives). It is so when the wake the run would send passed the day's cap, after a `4xx` answer, and
      when the wake a run joined is past its wait while the run still waits. False otherwise, also for a route whose
@@ -107,7 +108,8 @@ With the daemon's test clock (`Daemon::start_with_clock`) and a stand-in gateway
   `stopped` and no wake is out or may be joined (the run's wake passed the day's cap); false with no run waiting,
   while the run's wake was taken, once the stand-in reports `ready`, and for a managed route with the wake off.
 - A hosted route, a local route and a managed route without wake keys answer none of the fields.
-- A daemon started again on the same state directory answers the same figures as before its stop.
+- A daemon started again on the same state directory answers the same booked figures and instants as before its
+  stop (`wake_needed` follows the runs: the restart closes a run that waited).
 - A managed route with `price_per_hour_micro_usd`: `pod_booked_micro_usd` holds the pod's time up to now while a run
   uses the pod and the run's share once it ended; a wake not sent for "wake cap reached" has `booked_micro_usd` equal
   to `wake_booked_micro_usd + pod_booked_micro_usd` and `pod_micro_usd` equal to `pod_booked_micro_usd` as the view
