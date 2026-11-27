@@ -8,6 +8,7 @@ import {test, expect as plain} from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {ui, bin, startDaemon, submit, review, settle, rows, workspace, post} from './daemon-tree-fixture.mjs';
+import {installPageTime, spendPageTime} from './page-time.mjs';
 
 const expect = plain.configure({timeout: 15000});
 let d, dir;
@@ -180,12 +181,15 @@ test('an address in the form the daemon\'s page wrote before (the run\'s name) o
 test('a tree the daemon cannot read for a moment (503) leaves the tree shown in place, and the next read draws it again', async ({page}) => {
   const problems = [];
   page.on('pageerror', (e) => problems.push(`pageerror ${e.message}`));
+  await installPageTime(page);
   await page.goto(`${d.base}/?run=${runs.a}`);
   await expect(page.locator('#tree .case')).toHaveCount(3);
   let refused = 0;
   const cases = (u) => u.pathname === '/daemon/views/cases';
   await page.route(cases, (r) => { refused++; return r.fulfill({status: 503, contentType: 'application/json', body: '{"refused":"tree not readable","message":"ask again"}'}); });
-  await expect.poll(() => refused, {timeout: 10000}).toBeGreaterThan(1);
+  // the page reads the tree again every 2 s of its time (web/source.js): 5 s of it hold two reads at least
+  await spendPageTime(page, 5000);
+  expect(refused).toBeGreaterThan(1);
   await expect(page.locator('#tree .case')).toHaveCount(3);
   await page.unroute(cases);
   await page.reload();

@@ -192,23 +192,30 @@ test('content changed while a command is on its way: the answer that is lost lea
   await form(page);
   await page.locator('#st-confinement').selectOption('linux');
   await page.locator('#st-intake').fill('an invented intake that is changed while its command is on its way');
+  // each command is held until the test lets it go: the first until the content was changed (its answer is then lost),
+  // the second until the form has said that the first may have started a run
   let n = 0;
+  let typed, seen;
+  const changed = new Promise((r) => { typed = r; });
+  const noted = new Promise((r) => { seen = r; });
   await page.route(SUBMIT, async (route) => {
-    if (n++ > 0) { await new Promise((r) => setTimeout(r, 1000)); return route.continue(); }
+    if (n++ > 0) { await noted; return route.continue(); }
     const answer = await route.fetch();
     expect(answer.status()).toBe(202);
-    await new Promise((r) => setTimeout(r, 1200));
+    await changed;
     return route.abort('connectionreset');
   });
   await page.click('#st-start');
   await expect(page.locator('#st-start')).toBeDisabled();
   await page.locator('#st-intake').fill('the content the person typed while waiting');
+  typed();
   await expect(page.locator('#st-msg')).toContainText('could not be reached');
   await expect(page.locator('#st-maybe')).toHaveText('');
   const second = answered(page);
   await page.click('#st-start');
   // while the second command is on its way the form says that the first may have started a run
-  await expect(page.locator('#st-maybe')).toContainText('may have started a run', {timeout: 900});
+  await expect(page.locator('#st-maybe')).toContainText('may have started a run');
+  seen();
   const response = await second;
   expect(response.status()).toBe(202);
   expect(sent[1].idempotency_key).not.toBe(sent[0].idempotency_key);
@@ -275,11 +282,17 @@ test('a level picked while the form still reads the floor and the list of the da
   // a first opening, so that the page knows the list and the floor
   await form(page);
   await page.click('#st-close');
-  // the second opening: the list of the daemon takes 800 ms
-  await page.route('**/daemon/views/runbooks', async (route) => { await new Promise((r) => setTimeout(r, 800)); return route.continue(); });
+  // the second opening: the list of the daemon is held until the level was picked
+  let release;
+  const held = new Promise((r) => { release = r; });
+  let asked;
+  const reading = new Promise((r) => { asked = r; });
+  await page.route('**/daemon/views/runbooks', async (route) => { asked(); await held; return route.continue(); });
   await page.click('#startbtn');
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
+  await reading;
   await page.locator('#st-confinement').selectOption('linux');
+  release();
   await expect(page.locator('#st-start')).toBeEnabled();
   // open() ends by putting the focus into the intake
   await expect(page.locator('#st-intake')).toBeFocused();

@@ -9,6 +9,7 @@ import {test, expect as plain} from '@playwright/test';
 import {serve, LIVE, DONE} from './daemon-live-fixture.mjs';
 import {viewports, daemonPage} from '../ux/adapter.mjs';
 import {scrollOffenders, visibilityMisses, axeViolations} from '../ux/core/contract.mjs';
+import {installPageTime, spendPageTime} from './page-time.mjs';
 
 const expect = plain.configure({timeout: 10000});
 const ZONE = {timezoneId: 'Europe/Berlin', locale: 'en-US'};
@@ -351,6 +352,7 @@ test('the copy control says "Copied" in its words and its status line through a 
   const own = await serve({hold: 1});
   const ctx = await browser.newContext({...ZONE, viewport: {width: 1366, height: 768}, reducedMotion: 'reduce', permissions: ['clipboard-read', 'clipboard-write']});
   const page = await ctx.newPage();
+  await installPageTime(page);
   await open(page, {d: own});
   const copy = page.locator('#tree .case').getByRole('button', {name: 'Copy run id'});
   const status = page.locator('#tree .case [role=status]');
@@ -363,7 +365,9 @@ test('the copy control says "Copied" in its words and its status line through a 
   await fetch(`${own.base}/__fixture/next`);
   await expect(page.locator('#dsteps tbody tr[data-state=running]')).toHaveCount(1);
   await expect(copy).toHaveText('Copied');
-  await expect(copy).toHaveText('Copy', {timeout: 5000});
+  // the word goes back after 2 s of the page's time (web/app.js COPY_MS)
+  await spendPageTime(page, 2000);
+  await expect(copy).toHaveText('Copy');
   await expect(status).toHaveText('');
   await expect(copy).toHaveAttribute('title', `Copy the run id ${LIVE}`);
   await ctx.close();

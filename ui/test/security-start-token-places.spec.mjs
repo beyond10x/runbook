@@ -177,14 +177,24 @@ test('a token typed while the form still reads, and the form closed before the s
   await form(page);
   await page.click('#st-close');
   for (const [how, close] of [['Close', () => page.click('#st-close')], ['Escape', () => page.keyboard.press('Escape')]]) {
+    // the list of runbooks is held until the form is closed: its answer, the second paint, comes after the close
+    let release;
+    const held = new Promise((r) => { release = r; });
+    let asked;
+    const reading = new Promise((r) => { asked = r; });
     await page.unroute(RUNBOOKS).catch(() => {});
-    await page.route(RUNBOOKS, async (route) => { await new Promise((r) => setTimeout(r, 1500)); return route.continue(); });
+    await page.route(RUNBOOKS, async (route) => { asked(); await held; return route.continue(); });
     await page.click('#startbtn');
     await expect(page.locator('#startdlg')).toHaveJSProperty('open', true);
     await page.locator('#st-token').fill(TYPED);
+    await reading;
     await close();
     await expect(page.locator('#startdlg')).toHaveJSProperty('open', false);
-    await page.waitForTimeout(2200);
+    const answered = page.waitForEvent('requestfinished', (r) => new URL(r.url()).pathname === '/daemon/views/runbooks');
+    release();
+    await answered;
+    // the page has the answer: two frames later its continuation and any paint it makes have run
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     await expect(page.locator('#startdlg'), `${how}: the late paint opened the form`).toHaveJSProperty('open', false);
     expect(await places(page, context, TYPED), `after ${how} and the late paint`).toEqual([]);
   }
