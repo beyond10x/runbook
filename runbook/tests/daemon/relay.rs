@@ -568,3 +568,169 @@ fn wait_for_lines_within(book: &Book, n: usize, within: Duration) -> Vec<(Value,
         std::thread::sleep(Duration::from_millis(10));
     }
 }
+
+/// Adversary (story `a-call-booked-after-its-step-ended-does-not-fail-the-run`): a gateway on a loopback port that reads
+/// one whole call, writes `first` and then `part` at once, waits for the test's signal (at most 10 s), waits 30 ms more
+/// and writes `rest`; then it reads until the relay closes the connection.
+fn splitting_gateway(first: Vec<u8>, part: Vec<u8>, rest: Vec<u8>) -> (Gateway, std::sync::mpsc::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let got = Arc::new(Mutex::new(Vec::new()));
+    let kept = got.clone();
+    let (go, gone) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        let Ok((mut stream, _)) = listener.accept() else { return };
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+        let mut raw = Vec::new();
+        let mut byte = [0u8; 1];
+        while !raw.ends_with(b"\r\n\r\n") && raw.len() < 64 * 1024 {
+            match stream.read(&mut byte) {
+                Ok(1) => raw.push(byte[0]),
+                _ => break,
+            }
+        }
+        let head = String::from_utf8_lossy(&raw).into_owned();
+        let length = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+        let mut body = vec![0u8; length];
+        let _ = stream.read_exact(&mut body);
+        kept.lock().unwrap().push(Got { head, body: serde_json::from_slice(&body).unwrap_or(Value::Null) });
+        let _ = stream.write_all(&first);
+        let _ = stream.flush();
+        let _ = stream.write_all(&part);
+        let _ = stream.flush();
+        let _ = gone.recv_timeout(Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(30));
+        let _ = stream.write_all(&rest);
+        let mut sink = [0u8; 256];
+        while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
+    });
+    (Gateway { base_url, got }, go)
+}
+
+/// One chunk of a chunked body: its size line, its data and its end.
+fn chunk(data: &str) -> Vec<u8> {
+    format!("{:x}\r\n{data}\r\n", data.len()).into_bytes()
+}
+
+/// Adversary: the relay's own rule (`runbook/src/relay.rs`, `HUNG_UP_GRACE`; the unit's text: "An answer that ends within
+/// 200 ms of the hang-up is booked as answered"). The gateway streams the head and the event `message_start`, then the
+/// size line and the first 10 bytes of the last chunk (`message_delta` with its usage, then `message_stop`); the caller,
+/// which read `message_start`, hangs up; 30 ms later the gateway sends the rest of that chunk and the end of the body. The
+/// answer ended well within 200 ms of the hang-up: the call is booked as answered, with the 50 output tokens the last
+/// chunk reported.
+#[test]
+fn adversary_late_call_an_answer_whose_last_chunk_crosses_the_hang_up_is_booked_as_answered_with_its_tokens() {
+    let s = served("relay-adv-split");
+    let start = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1000,\"output_tokens\":1}}}\n\n";
+    let last = "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":50}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+    let mut first = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-llm-gateway-call: call-split\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+    first.extend(chunk(start));
+    let whole = chunk(last);
+    let cut = format!("{:x}\r\n", last.len()).len() + 10;
+    let mut rest = whole[cut..].to_vec();
+    rest.extend_from_slice(b"0\r\n\r\n");
+    let (review, go) = splitting_gateway(first, whole[..cut].to_vec(), rest);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "run");
+    let ticket = s.relay.open("run-adv-split", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let body = json!({"model": "review", "stream": true, "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).to_string();
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+    let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+    caller.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 1024];
+    while !String::from_utf8_lossy(&seen).contains("message_start") {
+        let n = caller.read(&mut buf).unwrap_or(0);
+        assert!(n > 0, "setup: the answer's first event never reached the caller: {}", String::from_utf8_lossy(&seen));
+        seen.extend_from_slice(&buf[..n]);
+    }
+    // the relay has read the start of the last chunk when the caller hangs up
+    std::thread::sleep(Duration::from_millis(150));
+    drop(caller);
+    go.send(()).unwrap();
+    let lines = wait_for_lines_within(&book, 1, Duration::from_secs(3));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let line = &lines[0].0;
+    assert_eq!((line["cause"].clone(), line["output_tokens"].clone()), (Value::Null, json!(50)), "an answer that ended 30 ms after its caller hung up was not booked as answered with its tokens: {line}");
+}
+
+/// Adversary: the 200 ms the relay reads on after a hang-up (`HUNG_UP_GRACE`), which no case of the unit reaches. The
+/// gateway streams the head and `message_start`; the caller reads it and hangs up; 30 ms later the gateway sends the last
+/// chunk whole (`message_delta` with 50 output tokens, `message_stop`) and the end of the body. The answer ended within
+/// 200 ms of the hang-up: the call is booked as answered with its 50 output tokens.
+#[test]
+fn adversary_late_call_an_answer_that_ends_30_ms_after_the_hang_up_is_booked_as_answered() {
+    let s = served("relay-adv-grace");
+    let start = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":1000,\"output_tokens\":1}}}\n\n";
+    let last = "event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":50}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+    let mut first = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nx-llm-gateway-call: call-grace\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n".to_vec();
+    first.extend(chunk(start));
+    let mut rest = chunk(last);
+    rest.extend_from_slice(b"0\r\n\r\n");
+    let (review, go) = splitting_gateway(first, Vec::new(), rest);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", None), "run");
+    let ticket = s.relay.open("run-adv-grace", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let body = json!({"model": "review", "stream": true, "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).to_string();
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+    let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+    caller.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+    let mut seen = Vec::new();
+    let mut buf = [0u8; 1024];
+    while !String::from_utf8_lossy(&seen).contains("message_start") {
+        let n = caller.read(&mut buf).unwrap_or(0);
+        assert!(n > 0, "setup: the answer's first event never reached the caller: {}", String::from_utf8_lossy(&seen));
+        seen.extend_from_slice(&buf[..n]);
+    }
+    drop(caller);
+    go.send(()).unwrap();
+    let lines = wait_for_lines_within(&book, 1, Duration::from_secs(3));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    let line = &lines[0].0;
+    assert_eq!((line["cause"].clone(), line["output_tokens"].clone()), (Value::Null, json!(50)), "an answer that ended 30 ms after its caller hung up was not booked as answered with its tokens: {line}");
+}
+
+/// Adversary: a caller that half-closes its connection (shuts down its write side once the call is sent, as some HTTP
+/// clients do) still reads: it has not hung up. The gateway answers after 300 ms; the caller gets the answer, and the
+/// call is booked as answered, not abandoned.
+///
+/// Not served, and kept here as the record of it (story `a-call-booked-after-its-step-ended-does-not-fail-the-run`,
+/// "Not served"): the daemon serves through `axum::serve` (`src/api/mod.rs`), whose HTTP/1 server reads the end of the
+/// caller's write side as a hang-up and drops the call's handler before the relay sees the call. Serving a half-closed
+/// caller needs a server of the daemon's own with `half_close` on, which also takes away the sign of a caller that
+/// hung up, the one the relay closes an abandoned call by.
+#[test]
+#[ignore = "not served: axum::serve takes a half-closed caller for one that hung up (src/api/mod.rs); see the story's Not served"]
+fn adversary_late_call_a_caller_that_half_closes_but_still_reads_gets_its_answer() {
+    let s = served("relay-adv-half");
+    let (review, release) = held_gateway(OK_ANSWER);
+    let table = RouteTable::default().with("review", route("claude", &review.base_url, "claude-alias", Some((3_000_000, 15_000_000))), "run");
+    let ticket = s.relay.open("run-adv-half", table).unwrap();
+    let book = Arc::new(Book { max_calls: 10, calls: AtomicU64::new(0), lines: Mutex::new(Vec::new()) });
+    ticket.take_calls(book.clone());
+    let body = json!({"model": "review", "max_tokens": 5, "messages": [{"role": "user", "content": "hi"}]}).to_string();
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", s.addr)).unwrap());
+    let mut caller = std::net::TcpStream::connect(s.addr).unwrap();
+    caller.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    write!(caller, "POST {path} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nAuthorization: Bearer {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", s.addr, ticket.token(), body.len()).unwrap();
+    caller.shutdown(std::net::Shutdown::Write).unwrap();
+    let limit = std::time::Instant::now() + Duration::from_secs(1);
+    while got(&review).is_empty() && std::time::Instant::now() < limit {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let reached = !got(&review).is_empty();
+    std::thread::sleep(Duration::from_millis(300));
+    let _ = release.send(());
+    let mut answer = Vec::new();
+    let _ = caller.read_to_end(&mut answer);
+    std::thread::sleep(Duration::from_millis(300));
+    let lines = book.lines.lock().unwrap().clone();
+    let text = String::from_utf8_lossy(&answer);
+    assert!(text.starts_with("HTTP/1.1 200") && text.contains("output_tokens"), "a caller that half-closed and still read got no answer: {text:?}; the call reached the gateway: {reached}; booked {lines:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0].0["cause"], Value::Null, "{lines:?}");
+}

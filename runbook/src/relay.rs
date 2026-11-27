@@ -231,6 +231,17 @@ pub trait Booking: Send + Sync {
     fn step(&self) -> Option<String>;
     /// Books one call: `line` is the ledger line, `micro_usd` what it costs.
     fn book(&self, line: Value, micro_usd: u64) -> Result<(), String>;
+    /// The step of the run in flight and the count of the starts and ends of steps so far: a call keeps both from its
+    /// admission and books with that count ([`Self::book_started`]).
+    fn step_started(&self) -> (Option<String>, u64) {
+        (self.step(), 0)
+    }
+    /// Books one call admitted when the count of [`Self::step_started`] was `started`: one booked when the count has
+    /// moved on ended after its own step did, though a later start of the same action may be in flight.
+    fn book_started(&self, line: Value, micro_usd: u64, started: u64) -> Result<(), String> {
+        let _ = started;
+        self.book(line, micro_usd)
+    }
 }
 
 struct Entry {
@@ -413,7 +424,8 @@ impl Relay {
             }
         }
         let sent = serde_json::to_vec(&Value::Object(body)).unwrap_or_default();
-        let call = Call { run: run.to_owned(), step: booking.step(), role, route, source, wire, booking, reserved: 0 };
+        let (step, started) = booking.step_started();
+        let call = Call { run: run.to_owned(), step, started, role, route, source, wire, booking, reserved: 0 };
         // The caps, the exchange with the gateway and the booking run in a task of their own: a caller that hangs up
         // drops this handler and not the task, which sees the hang-up, closes the call at the gateway and books it, once.
         let (answered, answer) = tokio::sync::oneshot::channel::<Response>();
@@ -504,6 +516,8 @@ fn passed_headers(headers: &HeaderMap) -> Vec<(String, String)> {
 struct Call {
     run: String,
     step: Option<String>,
+    /// The count of the starts and ends of the run's steps as the call came in ([`Booking::step_started`]).
+    started: u64,
     role: String,
     route: ResolvedRoute,
     source: String,
@@ -752,7 +766,8 @@ impl Call {
 
     async fn book(&self, (line, micro_usd): (Value, u64)) {
         let booking = self.booking.clone();
-        let _ = tokio::task::spawn_blocking(move || booking.book(line, micro_usd)).await;
+        let started = self.started;
+        let _ = tokio::task::spawn_blocking(move || booking.book_started(line, micro_usd, started)).await;
     }
 }
 
@@ -790,6 +805,18 @@ struct BodyReader {
     reader: BufReader<TcpStream>,
     framing: Framing,
     done: bool,
+    /// Where a chunked body is: the bytes of the part being read.
+    chunk: Chunk,
+}
+
+/// The part of a chunked body being read, with the bytes of it read so far.
+enum Chunk {
+    /// The line of a chunk's size.
+    Size(Vec<u8>),
+    /// A chunk and its line end, and how many bytes of them were read.
+    Data(Vec<u8>, usize),
+    /// A line of the trailer after the last chunk.
+    Trailer(Vec<u8>),
 }
 
 async fn timed<T>(f: impl std::future::Future<Output = std::io::Result<T>>) -> std::io::Result<T> {
@@ -828,28 +855,45 @@ impl BodyReader {
                 buf.truncate(n);
                 Ok(Some(buf))
             }
-            Framing::Chunked => {
-                let mut size_line = Vec::new();
-                timed(self.reader.read_until(b'\n', &mut size_line)).await?;
-                let text = String::from_utf8_lossy(&size_line);
-                let size = u64::from_str_radix(text.trim().split(';').next().unwrap_or("").trim(), 16).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk of the gateway's answer has no size"))?;
-                if size == 0 {
-                    loop {
-                        let mut trailer = Vec::new();
-                        let n = timed(self.reader.read_until(b'\n', &mut trailer)).await?;
-                        if n == 0 || trailer == b"\r\n" || trailer == b"\n" {
-                            break;
-                        }
+            // Every byte read is kept in `self.chunk` until its chunk is whole: a read cut off when the caller hangs up
+            // (`answer`) goes on where it stopped, and no part of a chunk is lost.
+            Framing::Chunked => loop {
+                match &mut self.chunk {
+                    Chunk::Size(line) => {
+                        timed(self.reader.read_until(b'\n', line)).await?;
+                        let text = String::from_utf8_lossy(line);
+                        let size = u64::from_str_radix(text.trim().split(';').next().unwrap_or("").trim(), 16).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk of the gateway's answer has no size"))?;
+                        self.chunk = if size == 0 {
+                            Chunk::Trailer(Vec::new())
+                        } else {
+                            let size = usize::try_from(size).ok().and_then(|s| s.checked_add(2)).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk is too large"))?;
+                            Chunk::Data(vec![0u8; size], 0)
+                        };
                     }
-                    self.done = true;
-                    return Ok(None);
+                    // the chunk and the line end after it
+                    Chunk::Data(buf, filled) => {
+                        while *filled < buf.len() {
+                            let n = timed(self.reader.read(&mut buf[*filled..])).await?;
+                            if n == 0 {
+                                return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "the gateway closed the answer inside a chunk"));
+                            }
+                            *filled += n;
+                        }
+                        let mut data = std::mem::take(buf);
+                        data.truncate(data.len() - 2);
+                        self.chunk = Chunk::Size(Vec::new());
+                        return Ok(Some(data));
+                    }
+                    Chunk::Trailer(line) => {
+                        let n = timed(self.reader.read_until(b'\n', line)).await?;
+                        if n == 0 || line == b"\r\n" || line == b"\n" {
+                            self.done = true;
+                            return Ok(None);
+                        }
+                        line.clear();
+                    }
                 }
-                let mut buf = vec![0u8; usize::try_from(size).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "a chunk is too large"))?];
-                timed(self.reader.read_exact(&mut buf)).await?;
-                let mut end = [0u8; 2];
-                timed(self.reader.read_exact(&mut end)).await?;
-                Ok(Some(buf))
-            }
+            },
         }
     }
 }
@@ -905,7 +949,7 @@ async fn open_upstream(route: &ResolvedRoute, wire: &str, passed: &[(String, Str
     } else {
         Framing::Close
     };
-    Ok(Upstream { status, headers, body: BodyReader { reader, framing, done: false } })
+    Ok(Upstream { status, headers, body: BodyReader { reader, framing, done: false, chunk: Chunk::Size(Vec::new()) } })
 }
 
 /// The headers of the gateway's answer that are about its connection, not its content.
@@ -935,7 +979,8 @@ fn answer(call: Call, upstream: Upstream) -> Response {
             }
         };
         let mut broken = None;
-        // the caller hung up: its connection closed, which drops the stream it was reading
+        // the caller hung up: its connection closed, which drops the stream it was reading. A read of the body cut off
+        // then keeps what it read (`BodyReader::chunk`), and the read on below goes on from there.
         let mut gone = false;
         loop {
             let next = tokio::select! {

@@ -460,15 +460,34 @@ impl Engine {
     }
 
     /// The run's end follows the step of the failed calls that fail no step on their own (`failed_calls`,
-    /// [`Gate::take_failed`]), each by its own step: the step of `case` whose program failed ends the run with its own first
-    /// failed call as its cause; a step that went on is noted in the run's record and the run goes on.
-    fn settle_failed(store: &Path, case: &str, failed_calls: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
+    /// [`Gate::take_failed`]), each by its own step, after the call into the tree that just ended (`stuck`: it left the
+    /// tree with nothing it can do). The step of `case` whose program failed, read from `case`'s own log
+    /// ([`refusal::failed_own_step`]), ends the run with its own first failed call as its cause; a step that went on is
+    /// noted in the run's record and the run goes on.
+    ///
+    /// A program that ended with an exit its bindings took as a result failed no step by itself: Loom took the result.
+    /// Its step's calls are held ([`Gate::hold_failed`]) until the next call into the tree: when that leaves the tree
+    /// stuck, the protocol did not go on and the step failed; otherwise they are noted.
+    fn settle_failed(store: &Path, gate: &Gate, case: &str, stuck: bool, failed_calls: &[Value], sink: &dyn EventSink) -> Result<(), RuntimeFailure> {
+        if let Some((held_case, held)) = gate.take_held_failed() {
+            match refusal::failed_own_step(store, &held_case) {
+                Some((step, _)) if stuck => Gate::settle_failed(&held, |s| s == step.action, sink).map_err(failure)?,
+                _ => Gate::note_held(&held, sink),
+            }
+        }
         if failed_calls.is_empty() {
             return Ok(());
         }
-        let failing = refusal::failed_step(store, case, |_| true).map(|s| s.action);
-        let failed = |step: &str| failing.as_deref() == Some(step);
-        Gate::settle_failed(failed_calls, failed, sink).map_err(failure)
+        match refusal::failed_own_step(store, case) {
+            Some((_, true)) if !stuck => {
+                gate.hold_failed(case, failed_calls.to_vec());
+                Ok(())
+            }
+            failing => {
+                let failing = failing.map(|(s, _)| s.action);
+                Gate::settle_failed(failed_calls, |step| failing.as_deref() == Some(step), sink).map_err(failure)
+            }
+        }
     }
 
     /// Whether the daemon cancelled the run (the wall cap sets the run's own flag, not this).
@@ -537,7 +556,7 @@ impl Engine {
             let failed_calls = gate.take_failed();
             let ran = ran.map_err(failure)?;
             booked.map_err(failure)?;
-            Self::settle_failed(store, &ran.case, &failed_calls, sink)?;
+            Self::settle_failed(store, gate, &ran.case, matches!(ran.stop, TreeStop::Stuck), &failed_calls, sink)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
@@ -779,7 +798,7 @@ impl Wait<'_> {
             return Err(failure(f));
         }
         booked.map_err(failure)?;
-        Engine::settle_failed(self.store, &d.case, &failed_calls, self.sink)?;
+        Engine::settle_failed(self.store, gate, &d.case, false, &failed_calls, self.sink)?;
         if let Some(end) = Engine::stop_of(gate, self.daemon_cancel, self.slot, self.sink) {
             return end.map(Some);
         }

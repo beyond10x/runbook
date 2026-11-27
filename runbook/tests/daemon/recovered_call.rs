@@ -233,14 +233,14 @@ fn a_call_answered_502_in_a_step_that_exits_non_zero_is_the_first_cause_of_the_r
 }
 
 /// A child protocol `late.<name>` with its bindings `late-<name>.yaml`: one program step `<name>.write` that runs
-/// `tools/late-<name>.sh` and writes the artifact `<name>` (`<name>.md`); exit 0 and exit 3 are taken as `written`, and
+/// `tools/late-<name>.sh` and writes the artifact `<name>` (`<name>.md`); exit 0, 2 and 3 are taken as `written`, and
 /// the case passes once it is written.
 fn late_child(h: &Home, name: &str) {
     let protocol = format!(
         "format: protocol/1\nprotocol:\n  id: late.{name}\n  revision: 1\n  description: >-\n    One step that writes the {name}.\nartifacts:\n  idea: {{}}\n  {name}: {{}}\nevidence_kinds:\n  {name}_written: {{}}\nclaims:\n  {name}.written:\n    true_when:\n      evidence: {{kind: {name}_written, subject: {name}, result: written}}\nactions:\n  {name}.write:\n    effect: write\n    precondition: {{claim: {name}.written, is: unknown}}\n    may_produce:\n      - evidence: {name}_written\noutcomes:\n  passed:\n    requires: {{claim: {name}.written}}\n"
     );
     let bindings = format!(
-        "format: loom.bindings/1\nprotocol: late-{name}@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\n  {name}: {name}.md\nactions:\n  - action: {name}.write\n    executor:\n      kind: program\n      argv: [tools/late-{name}.sh, --max-budget-usd, \"0.5\"]\n    exits: {{error: [1, 75, 126, 127]}}\n    timeout_seconds: 20\n    evidence:\n      - kind: {name}_written\n        subject: {name}\n        producer: late\n        from: exit\n        results: {{\"0\": written, \"3\": written, timeout: failed, \"*\": failed}}\n"
+        "format: loom.bindings/1\nprotocol: late-{name}@1\nprogram_root: bindings\nartifacts:\n  idea: idea.yaml\n  {name}: {name}.md\nactions:\n  - action: {name}.write\n    executor:\n      kind: program\n      argv: [tools/late-{name}.sh, --max-budget-usd, \"0.5\"]\n    exits: {{error: [1, 75, 126, 127]}}\n    timeout_seconds: 20\n    evidence:\n      - kind: {name}_written\n        subject: {name}\n        producer: late\n        from: exit\n        results: {{\"0\": written, \"2\": written, \"3\": written, timeout: failed, \"*\": failed}}\n"
     );
     std::fs::write(h.home.join(format!("protocol/late-{name}.protocol.yaml")), protocol).unwrap();
     std::fs::write(h.home.join(format!("bindings/late-{name}.yaml")), bindings).unwrap();
@@ -319,6 +319,38 @@ fn a_failed_call_booked_after_its_step_ended_does_not_fail_the_run_whose_steps_w
         .map(|e| (e["step"].clone(), e["calls"].as_array().into_iter().flatten().map(|c| c["gateway_call"].clone()).collect()))
         .collect();
     assert_eq!(noted, vec![(json!("notes.write"), vec![json!("gw-call-late")])], "the run's record does not name the late call once under its step");
+}
+
+/// Story `a-call-booked-after-its-step-ended-does-not-fail-the-run`, the consumer's gap 4: a step whose program exits 2,
+/// an exit its bindings take as a result (`written`; 2 is not in its `exits.error`), is no failed step. Its one call is
+/// answered 502 (`upstream-failed`) and its program then exits 2 with its product: Loom took the result and the
+/// protocol goes on to `passed`. The run's record names the call under the step with one `runbook.model-calls-failed`
+/// and holds no `runbook.runtime-failed`. (An exit its `exits.error` lists still fails the run with the call as its
+/// first cause: `bound_step::a_failed_call_of_a_bound_program_whose_step_exits_1_is_the_first_cause_of_the_runs_failure`.)
+#[test]
+fn a_failed_call_of_a_step_whose_exit_the_bindings_take_as_a_result_does_not_fail_the_run() {
+    let gw = gateway_answering(|_| answer("502 Bad Gateway", "gw-call-mapped", &json!({"error": {"code": "upstream-failed", "message": "the upstream gave no answer: timeout"}}).to_string()), &["a-model"]);
+    let (h, l, _roots) = daemon_at("rc-mapped-exit", &gw.base_url, &format!("{}{ROUTE}", model_table(Some(&claude_cli()))));
+    late_child(&h, "gap");
+    let head = format!(
+        "#!/bin/bash\nf=$RUNBOOK_ROUTE_FILE\nbase=$(jq -r .base_url \"$f\") && token=$(jq -r .token \"$f\") || exit 9\nmodel=default\n{}",
+        super::adversary_w4::call_function(&h.log)
+    );
+    write_exe(&h.home.join("bindings/tools/late-gap.sh"), &format!("{head}call ''\nprintf 'gap\\n' > gap.md\nexit 2\n"));
+    let r = send(l.addr, "POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(json!({"runbook_id": "late-gap", "intake": "red or blue", "model_route": "default"}).to_string().as_bytes()));
+    assert_eq!(r.status, 202, "{}", r.text());
+    let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned();
+    let end = until_state(&l, &run, &["Ended", "FailedToStart", "Cancelled"]);
+    let calls: Vec<Value> = events(&l, &run, "runbook.model-call").iter().map(|c| c["gateway_call"].clone()).collect();
+    assert_eq!(calls, vec![json!("gw-call-mapped")], "setup: the step's one call was not booked: {end}");
+    let failed: Vec<Value> = events(&l, &run, "runbook.runtime-failed").into_iter().map(|e| e["reason"].clone()).collect();
+    assert!(failed.is_empty(), "a failed call of a step whose exit the bindings take as a result failed the run: {failed:?} {end}");
+    assert_eq!((end["state"].clone(), end["outcome"].clone()), (json!("Ended"), json!("passed")), "the run did not follow its protocol to its outcome: {end}");
+    let noted: Vec<(Value, Vec<Value>)> = events(&l, &run, "runbook.model-calls-failed")
+        .iter()
+        .map(|e| (e["step"].clone(), e["calls"].as_array().into_iter().flatten().map(|c| c["gateway_call"].clone()).collect()))
+        .collect();
+    assert_eq!(noted, vec![(json!("gap.write"), vec![json!("gw-call-mapped")])], "the run's record does not name the call under its step");
 }
 
 /// The gateway's spend ceiling (`spend-ceiling` 503) still fails the step at once, though the program went on and

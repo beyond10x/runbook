@@ -310,6 +310,12 @@ const NO_EXIT: &str = "ended with no exit";
 ///
 /// `None` when the last program ended 0, was refused as above by a program `agent_node` does not take, or none ran.
 pub fn failed_step_in(log: &str, observations: &[Value], agent_node: impl Fn(&str) -> bool) -> Option<FailedStep> {
+    last_step_in(log, observations, agent_node).map(|(step, _)| step)
+}
+
+/// [`failed_step_in`], and whether the failed step's exit is one its bindings' results took (an `ActionFinished` with an
+/// `exit`), not one its `exits.error` lists, a signal, a timeout or no exit.
+fn last_step_in(log: &str, observations: &[Value], agent_node: impl Fn(&str) -> bool) -> Option<(FailedStep, bool)> {
     let lines: Vec<Value> = log.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()).collect();
     let case = lines.iter().find(|l| l.get("kind").and_then(Value::as_str) == Some("CaseOpened")).and_then(|l| l.get("case")).and_then(Value::as_str);
     // The observation of the last run of `action` in this case.
@@ -319,6 +325,7 @@ pub fn failed_step_in(log: &str, observations: &[Value], agent_node: impl Fn(&st
         })
     };
     let mut last: Option<FailedStep> = None;
+    let mut mapped = false;
     for line in lines.iter().filter(|l| l.get("kind").and_then(Value::as_str) == Some("ActionFinished")) {
         let action = line.get("action").and_then(Value::as_str).unwrap_or_default();
         let step = |end| Some(FailedStep { action: action.to_owned(), end });
@@ -337,10 +344,11 @@ pub fn failed_step_in(log: &str, observations: &[Value], agent_node: impl Fn(&st
             }
             (None, Some(TIMED_OUT)) if observed(action).and_then(|run| run.get("timed_out")).and_then(Value::as_bool) == Some(true) => last = step(StepEnd::TimedOut),
             (None, Some(NO_EXIT)) => last = step(StepEnd::NoExit),
-            _ => {}
+            _ => continue,
         }
+        mapped = line.get("exit").and_then(Value::as_i64).is_some();
     }
-    last.filter(|s| s.end != StepEnd::Exit(0))
+    last.filter(|s| s.end != StepEnd::Exit(0)).map(|s| (s, mapped))
 }
 
 /// Loom's observations of a store (`observations.json`); none when it cannot be read.
@@ -354,6 +362,14 @@ pub fn failed_step(store: &std::path::Path, case: &str, agent_node: impl Fn(&str
     let own = b10x_loom_runlog::log_file_name(case);
     let read = |f: &str| std::fs::read_to_string(store.join(f)).ok().and_then(|t| failed_step_in(&t, &observations, &agent_node));
     read(&own).or_else(|| run_log_files(store).iter().filter(|f| **f != own).find_map(|f| read(f)))
+}
+
+/// The failed step of the case `case` (`Engine::settle_failed`), read from that case's own log only, never from another
+/// case's, and whether its exit is one its bindings' results took (`true`), not one its `exits.error` lists, a signal,
+/// its timeout or no exit.
+pub fn failed_own_step(store: &std::path::Path, case: &str) -> Option<(FailedStep, bool)> {
+    let log = std::fs::read_to_string(store.join(b10x_loom_runlog::log_file_name(case))).ok()?;
+    last_step_in(&log, &observations_of(store), |_| true)
 }
 
 /// A call into Loom's tree commands that was refused: the reason (typed) and Loom's text.

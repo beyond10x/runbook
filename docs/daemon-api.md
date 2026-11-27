@@ -1226,7 +1226,8 @@ On a loopback listener:
   `{"include_usage": true}`. A call that was sent is booked once. A caller that hangs up before the answer has ended
   ends the call at the gateway: the relay closes its request to the gateway within a second and books the call with
   the `cause` `call-abandoned` and the `code` `caller-hung-up`, at the tokens the answer reported so far, else at its
-  reservation (`cost_known: false`). An abandoned call is no failed call of its step (`docs/engine.md`, "A gateway").
+  reservation (`cost_known: false`); an answer that ends within 200 ms of the hang-up is booked as answered. An
+  abandoned call is no failed call of its step (`docs/engine.md`, "A gateway").
 - A call the gateway refused carries the gateway's `code`, its `detail` and its error text as `error`
   (`<type or code>: <message>` of the answer's JSON `error`, at most 300 bytes, the gateway's token replaced; the
   `code` at most 64 bytes, the token replaced). A streamed answer that ends in an error event is a failed call too. A
