@@ -25,9 +25,14 @@ pub struct ServeArgs {
     /// (default `$XDG_STATE_HOME/runbook`, else `~/.local/state/runbook`).
     #[arg(long, value_name = "DIR")]
     pub state_dir: Option<PathBuf>,
-    /// A directory a run's context may be copied from; repeatable. None given: no context from a path.
+    /// A directory a run's context may be copied from; repeatable. It adds to `context_roots` of `runbook.toml`; a
+    /// directory that is missing is created with mode 0700. None from either: no context from a path.
     #[arg(long = "context-root", value_name = "DIR")]
     pub context_root: Vec<PathBuf>,
+    /// `context_roots` of `runbook.toml`, each absolute against the file: the roots the option adds to. Not an option:
+    /// the binary fills it from the file.
+    #[arg(skip)]
+    pub file_context_roots: Vec<PathBuf>,
     /// A directory of runbooks a submit may name besides the presets.
     #[arg(long, value_name = "DIR")]
     pub runbook_dir: Option<PathBuf>,
@@ -177,9 +182,107 @@ pub fn state_dir(args: &ServeArgs, env: &Env) -> Result<PathBuf, String> {
     }
 }
 
+/// The exit code of a start refused for a context root: 2, as `runbook serve` exits for a refusal of `runbook.toml`.
+pub const EXIT_ROOT_REFUSED: u8 = 2;
+
+/// Why the start was refused, and the code the process exits with: [`EXIT_ROOT_REFUSED`] for a context root, 1 for
+/// anything else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refused {
+    pub code: u8,
+    pub message: String,
+}
+
+impl From<String> for Refused {
+    fn from(message: String) -> Refused {
+        Refused { code: 1, message }
+    }
+}
+
+impl From<&str> for Refused {
+    fn from(message: &str) -> Refused {
+        Refused::from(message.to_owned())
+    }
+}
+
+/// Where a context root was named.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RootSource {
+    File,
+    Option,
+}
+
+impl RootSource {
+    /// What a refusal names: the key of the file or the option.
+    fn key(self) -> &'static str {
+        match self {
+            RootSource::File => "context_roots",
+            RootSource::Option => "--context-root",
+        }
+    }
+
+    /// What the start log names.
+    fn said(self) -> &'static str {
+        match self {
+            RootSource::File => "context_roots of runbook.toml",
+            RootSource::Option => "--context-root",
+        }
+    }
+}
+
+/// The daemon's context roots: those of the file (`context_roots`), then those of the option, each canonicalized once
+/// and a root named twice kept once, with a line for the start log about each. A root that does not exist is created
+/// with mode 0700, its missing parents too. A root that exists is never changed: one with a group or other write bit
+/// is refused, one wider than 0700 without them is named with its mode. A path that is no directory, or that cannot be
+/// read or created, is refused naming the key or the option and the path.
+pub fn context_roots(file: &[PathBuf], option: &[PathBuf]) -> Result<(Vec<PathBuf>, Vec<String>), String> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut said = Vec::new();
+    let named = file.iter().map(|p| (p, RootSource::File)).chain(option.iter().map(|p| (p, RootSource::Option)));
+    for (path, source) in named {
+        let refuse = |why: String| format!("{} {}: {why}", source.key(), path.display());
+        let line = format!("context root {} ({})", path.display(), source.said());
+        let line = match std::fs::metadata(path) {
+            Ok(m) if !m.is_dir() => return Err(refuse("is not a directory".to_owned())),
+            Ok(m) => {
+                let mode = m.mode() & 0o7777;
+                if mode & 0o022 != 0 {
+                    return Err(refuse(format!("is writable by group or others (mode {mode:04o}): `chmod go-w` it, or name another directory")));
+                }
+                if mode & 0o077 != 0 {
+                    format!("{line} has mode {mode:04o}, wider than 0700: it is not changed")
+                } else {
+                    line
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path).map_err(|e| refuse(format!("cannot be created: {e}")))?;
+                format!("{line}: created with mode 0700")
+            }
+            Err(e) => return Err(refuse(e.to_string())),
+        };
+        let canon = std::fs::canonicalize(path).map_err(|e| refuse(e.to_string()))?;
+        if !canon.is_dir() {
+            return Err(refuse("is not a directory".to_owned()));
+        }
+        if !roots.contains(&canon) {
+            roots.push(canon);
+        }
+        said.push(line);
+    }
+    Ok((roots, said))
+}
+
 /// Everything that can refuse the start, in order: the principal, the token, the listen address against
-/// the token (the security floor), then the state directory. Nothing is bound or written before the floor holds.
+/// the token (the security floor), then the context roots, then the state directory. Nothing is bound or written
+/// before the floor holds.
 pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared, String> {
+    start(args, env, presets).map_err(|r| r.message)
+}
+
+/// [`prepare`] with the exit code of a refusal.
+pub fn start(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared, Refused> {
     let principal = args.principal.clone().ok_or("--principal is required: person:<id> or agent:<id>, the principal the daemon acts as (no default)")?;
     check_principal(&principal)?;
     let token = auth::load_token(args.token_file.as_deref(), env.token.clone())?;
@@ -203,13 +306,18 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
     let kinds = if args.runtime == "loom" { args.arbiter.as_ref().map(|a| a.kinds()).unwrap_or_default() } else { Vec::new() };
     let autonomy = args.autonomy.as_deref().map(|a| Autonomy::parse(a).ok_or_else(|| format!("--autonomy {a}: not a level"))).transpose()?;
     check_terms(&Terms { autonomy, decider: args.decider.clone() }, &kinds).map_err(|e| format!("the default decider of the daemon (--autonomy, --decider): {e}"))?;
+    // The floor holds: a missing root is created now, before the state directory is opened.
+    let (context_roots, said) = context_roots(&args.file_context_roots, &args.context_root).map_err(|message| Refused { code: EXIT_ROOT_REFUSED, message })?;
+    for line in &said {
+        note(format_args!("runbook: {line}"));
+    }
     let state = std::path::absolute(state_dir(args, env)?).map_err(|_| "the state directory cannot be made absolute: the daemon has no current directory".to_string())?;
     let mut relay = None;
     let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
         let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
         let home = std::path::absolute(home).map_err(|_| "the runbook home cannot be made absolute: the daemon has no current directory".to_string())?;
         if !home.join("protocol").is_dir() || !home.join("bindings").is_dir() {
-            return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()));
+            return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()).into());
         }
         let caps = cap_policy(args)?;
         crate::runbooks::load(&args.runbooks, Some(&home))?;
@@ -243,7 +351,7 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         stub.script(STUB_DECISION, StubRuntime::decision_script());
         (Arc::new(stub), args.runbook_dir.clone())
     };
-    let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
+    let cfg = Config { state_dir: state, confinement_floor: floor, context_roots, runbook_dir, principal };
     // The route `default` of a lone `[gateway]` serves a model run only with the loom runtime, which has the relay.
     let gateway_route = args.route_table.clone().filter(|t| !t.is_empty() && relay.is_some());
     let policy = Policy { default_confinement, autonomy, decider: args.decider.clone(), kinds, routes: args.routes.clone(), gateway_route, repositories: args.repositories.clone() };
@@ -358,7 +466,8 @@ pub async fn guarded_stop(daemon: &Daemon, stop: impl std::future::Future<Output
 
 /// The exit code of `runbook serve` when it was stopped while at least one run was live and each such run
 /// ended as orphaned (a second signal, `--drain-seconds`, or a stop that failed). 0 is a stop that left no
-/// run behind; 1 is a start that was refused or a server that failed; 64 and 2 are the usage errors.
+/// run behind; 1 is a start that was refused or a server that failed; 64 and 2 are the usage errors, and 2 is also a
+/// refusal of `runbook.toml` or of a context root.
 pub const EXIT_ORPHANED: u8 = 75;
 
 /// The code `serve` exits with, given how it ended.
@@ -374,11 +483,11 @@ fn exit_code(served: &Result<(), String>, end: StopEnd) -> ExitCode {
 /// Run the daemon until SIGINT or SIGTERM and then the end of its drain. Exit 1 when the start is refused,
 /// `EXIT_ORPHANED` when the stop left a live run orphaned, else 0.
 pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
-    let prepared = match prepare(&args, &Env::from_process(), presets) {
+    let prepared = match start(&args, &Env::from_process(), presets) {
         Ok(p) => p,
-        Err(e) => {
-            eprintln!("runbook serve: {e}");
-            return ExitCode::from(1);
+        Err(Refused { code, message }) => {
+            eprintln!("runbook serve: {message}");
+            return ExitCode::from(code);
         }
     };
     let Prepared { addr, token, daemon, relay } = prepared;

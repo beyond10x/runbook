@@ -32,6 +32,7 @@ mod answer_order;
 mod default_confinement;
 mod default_level;
 mod delegate;
+mod context_roots;
 mod delegate_change;
 mod adversary_delegate_change;
 mod plugin_session;

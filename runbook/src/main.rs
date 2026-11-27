@@ -222,6 +222,8 @@ fn main() -> ExitCode {
             }
             // The level of a submit that names none and the deciders the daemon offers come from the same file.
             args.file_confinement = file.as_ref().and_then(|f| f.confinement).map(loom_run::library::level_of);
+            // The file's context roots: the daemon adds those of --context-root and creates a missing one once its floor holds.
+            args.file_context_roots = file.as_ref().map(|f| f.context_roots.clone()).unwrap_or_default();
             // The model routes: their token files are read once, here, before the daemon reads or writes anything.
             if let Some(f) = file.as_ref() {
                 let mut routes = f.routes.clone();
