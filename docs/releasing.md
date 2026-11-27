@@ -21,7 +21,7 @@ A push of a bare-version tag runs `.github/workflows/release.yml`. It stops when
 Each archive holds one directory `runbook-<version>-<target>/` with `bin/`, `libexec/runbook/` and
 `share/runbook/` as the script wrote them. The musl job fails unless `file` and `ldd` call every program of the
 prefix static, each one answers `--version` (or `--help`) in a plain `alpine` container without network, and its
-`runbook` holds `mi_malloc`; the gnu job fails when its `runbook` holds `mi_malloc`. The `publish` job checks the
+`runbook` holds `mi_malloc_aligned` (what the `GlobalAlloc` of the crate `mimalloc` calls; a linked musl `runbook` has no symbol `mi_malloc`); the gnu job fails when its `runbook` holds `mi_malloc_aligned`. The `publish` job checks the
 four files against each other and uploads them to the tag's Release; when the Release does not exist yet, it
 makes it with the notes `docs/releases/<version>.md` (the body step 4 gives it).
 

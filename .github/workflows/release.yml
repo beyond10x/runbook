@@ -87,12 +87,12 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           set -euo pipefail
-          if nm "$PREFIX/bin/runbook" | grep -q -w mi_malloc; then echo "the gnu runbook links mimalloc"; exit 1; fi
+          if nm "$PREFIX/bin/runbook" | grep -q -w mi_malloc_aligned; then echo "the gnu runbook links mimalloc"; exit 1; fi
       - name: The musl runbook allocates through mimalloc
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           set -euo pipefail
-          nm "$PREFIX/bin/runbook" | grep -q -w mi_malloc || { echo "the musl runbook has no mi_malloc: the feature mimalloc is off"; exit 1; }
+          nm "$PREFIX/bin/runbook" | grep -q -w mi_malloc_aligned || { echo "the musl runbook has no mi_malloc_aligned: the feature mimalloc is off"; exit 1; }
       - name: Each program is static and runs in a plain alpine container
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
