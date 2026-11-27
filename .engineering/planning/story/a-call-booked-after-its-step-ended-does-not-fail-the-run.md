@@ -2,12 +2,15 @@
 format: aep.planning-md/3
 id: story:a-call-booked-after-its-step-ended-does-not-fail-the-run
 kind: story
-status: draft
+status: active
 title: A call booked after its step ended does not fail the run, and an abandoned call ends at the gateway
 summary: A late failed call is named under its own step and never fails a run whose steps went on; a caller that hangs up ends its call upstream and is booked as abandoned
 relations:
 - informed_by: story:a-recovered-call-does-not-fail-the-run
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-27T11:10:21Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-27T11:10:21Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
