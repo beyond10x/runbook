@@ -7,6 +7,7 @@
 // The binary: SDC_RUNBOOK_BIN, else runbook/target/debug/runbook (`task test:ui` builds it first).
 import {test, expect as plain} from '@playwright/test';
 import {spawnChild, SERVE_CAPS} from './child.mjs';
+import {installPageTime, spendPageTime} from './page-time.mjs';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -164,6 +165,7 @@ test('hostile fields of the view routes are text in the header and in the Routes
 // page the events written before it opened in batches, and each batch reads the run list once, from a daemon that
 // still answers.
 test('a daemon that answers 403 to every request is polled at most 4 times a second with the Routes view open', async ({page}) => {
+  await installPageTime(page);
   await enter(page);
   await pick(page, runs.claude);
   await expect(head(page)).toContainText('route claude · hosted');
@@ -177,7 +179,8 @@ test('a daemon that answers 403 to every request is polled at most 4 times a sec
   await page.route('**/daemon/**', (route) => route.fulfill({status: 403, json: {refused: 'forbidden', message: 'refused'}}));
   const seen = [];
   page.on('request', (r) => seen.push(new URL(r.url()).pathname));
-  await page.waitForTimeout(5000);
+  // 5 s of the page's own time (page-time.mjs): every timer of the page that falls due fires, and every read it chains
+  await spendPageTime(page, 5000);
   const perSecond = seen.length / 5;
   const byPath = {};
   for (const p of seen) byPath[p] = (byPath[p] || 0) + 1;

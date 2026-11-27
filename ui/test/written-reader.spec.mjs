@@ -11,6 +11,7 @@ import {fileURLToPath} from 'node:url';
 import {FIXTURE_DIR} from './fixture-dir.mjs';
 import {startServer} from './serve.mjs';
 import {writeWrittenRun, change} from './written-fixture.mjs';
+import {installPageTime} from './page-time.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // each case makes its own run and server, so the cases run spread over the workers; each worker writes under a directory of
@@ -100,9 +101,11 @@ test('a value of SDC_UI_MAX_RECORDS between 0 and 1 is not a bound that keeps no
 
 test('a value of SDC_UI_MAX_RECORDS or SDC_UI_MAX_RECORD_BYTES that is 0, negative, text or empty is the default bound', async () => {
   test.setTimeout(60000);
-  for (const key of ['SDC_UI_MAX_RECORDS', 'SDC_UI_MAX_RECORD_BYTES']) {
-    for (const v of ['0', '-5', 'abc', '', '  ', 'NaN', '0.5']) expect(await envCase(key, v, small)).toEqual({v, basis: 'records', stopped: null, read: null});
-  }
+  // the fourteen servers start at once, each with a run of its own
+  const values = ['0', '-5', 'abc', '', '  ', 'NaN', '0.5'];
+  const cases = ['SDC_UI_MAX_RECORDS', 'SDC_UI_MAX_RECORD_BYTES'].flatMap((key) => values.map((v) => [key, v]));
+  const got = await Promise.all(cases.map(([key, v]) => envCase(key, v, small)));
+  cases.forEach(([key, v], i) => expect(got[i], key).toEqual({v, basis: 'records', stopped: null, read: null}));
 });
 
 test('a value of SDC_UI_MAX_RECORDS that is a whole number a number cannot hold exactly (1e300) is the default bound, not a bound that is off', async () => {
@@ -638,6 +641,7 @@ test('the Products tab redraws when only the count of names past the link bound 
     append(d, [change(900, `${'l/'.repeat(30)}deep.txt`, {text: 'd\n', step: 3}), change(901, 'ok.txt', {text: 'o\n', step: 3, action: 'x'.repeat(300)})]);
   });
   await page.setViewportSize({width: 1600, height: 1000});
+  await installPageTime(page);
   await page.goto(`${servers.pageredraw.url}/?run=run`);
   await expect(page.locator('#product')).toBeVisible({timeout: 20000});
   await page.locator('#tabs button[data-tab=products]').click();
@@ -650,9 +654,11 @@ test('the Products tab redraws when only the count of names past the link bound 
   fs.symlinkSync('.', path.join(dir, 'work/l'));
   const after = await products('pageredraw');
   expect([after.json.leftOut, after.json.linkCut, after.json.cut, after.json.files.length]).toEqual([1, 1, 'strings', before.json.files.length]);
-  // a change of the record file is what makes the page ask again (at most every 1.5 s); a late line changes no file of the list
+  // a change of the record file is what makes the page ask again (at most every 1.5 s of its time: the page's clock is moved
+  // past that, page-time.mjs); a late line changes no file of the list
+  await page.clock.fastForward(1600);
   const notes = () => page.locator('#panel .prod-cut').filter({hasText: /more than \d+ links/}).count();
-  await expect.poll(async () => { append(dir, [late(900, 'again')]); return notes(); }, {timeout: 20000, intervals: [1600]}).toBe(1);
+  await expect.poll(async () => { append(dir, [late(900, 'again')]); return notes(); }, {timeout: 20000, intervals: [250]}).toBe(1);
 });
 
 test('an action name that is markup and is cut inside it is shown as text, with the note', async ({page}) => {

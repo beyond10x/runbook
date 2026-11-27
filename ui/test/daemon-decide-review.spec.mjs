@@ -2,6 +2,7 @@
 // `daemon-decide.spec.mjs` does not measure. Each daemon listens on 127.0.0.1:0 with a state directory of its own.
 import {test, expect as plain} from '@playwright/test';
 import {spawnChild, SERVE_CAPS} from './child.mjs';
+import {installPageTime, spendPageTime} from './page-time.mjs';
 import fs from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -166,17 +167,19 @@ test('the option free sends its text with it, and its letter alone is never sent
 });
 
 // Invariant 8: a daemon that refuses every read (a token the cookie no longer proves, a Host the daemon
-// refuses) is asked at a bounded rate, and a refused command is not sent again by the page.
+// refuses) is asked at a bounded rate, and a refused command is not sent again by the page. The 5 s are the page's own
+// time (page-time.mjs): every timer of the page that falls due in them fires, and every read it chains on an answer.
 async function rate(page) {
   const all = reqs(page);
   const before = all.length;
-  await page.waitForTimeout(5000);
+  await spendPageTime(page, 5000);
   return all.slice(before);
 }
 
 test('a daemon that answers 401 to every read is polled at a bounded rate and no command is sent again', async ({page, context}) => {
   const s = servers.guarded;
   const id = await waiting(s, 'Approve while reads are refused');
+  await installPageTime(page);
   await enter(page, s);
   await drawer(page, id);
   await context.clearCookies();
@@ -195,6 +198,7 @@ test('a daemon that answers 401 to every read is polled at a bounded rate and no
 test('a daemon that answers 403 to every request is polled at a bounded rate and no command is sent again', async ({page}) => {
   const s = servers.open;
   const id = await waiting(s, 'Approve while everything is refused');
+  await installPageTime(page);
   await enter(page, s);
   await drawer(page, id);
   await page.locator('#dd-by').fill('refused');

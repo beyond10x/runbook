@@ -66,7 +66,10 @@ test('a double click and every press while the first command is on its way send 
   page.on('request', (r) => { if (isStart(r)) sent.push(JSON.parse(r.postData())); });
   await form(page);
   await page.locator('#st-intake').fill('an invented intake, pressed many times');
-  await page.route('**/daemon/commands/submit-run', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
+  // the first command is held until every press below was made
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route('**/daemon/commands/submit-run', async (route) => { await held; await route.continue(); });
   await page.locator('#st-start').dblclick();
   await expect(page.locator('#st-start')).toBeDisabled();
   await page.locator('#st-start').click({force: true});
@@ -75,6 +78,7 @@ test('a double click and every press while the first command is on its way send 
   await page.keyboard.press('Space');
   await page.locator('#st-intake').focus();
   await page.keyboard.press('Control+Enter');
+  release();
   await expect(page.locator('#startdlg')).toHaveJSProperty('open', false);
   expect(sent.length).toBe(1);
   expect(await added()).toBe(1);
