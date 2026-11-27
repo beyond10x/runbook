@@ -494,3 +494,151 @@ fn a_ledger_that_cannot_be_read_at_start_refuses_the_calls_of_a_capped_route_and
     assert_eq!(r.call(&free).status, 200);
     assert_eq!(got(&gw).len(), 1);
 }
+
+// ---- adversary: concurrent calls, a run's refusal beside another run's call, an answer with no usage, a classify call ----
+
+/// The path and the bearer of a call of `ticket` on the relay of `r`, to send from another thread.
+fn call_parts(r: &Rig, ticket: &Ticket) -> (String, String) {
+    let path = format!("{}/v1/messages", ticket.base_url().strip_prefix(&format!("http://{}", r.addr)).unwrap());
+    (path, format!("Bearer {}", ticket.token()))
+}
+
+fn send_parts(addr: SocketAddr, (path, bearer): &(String, String)) -> Resp {
+    let body = json!({"model": "default", "max_tokens": 8, "messages": [{"role": "user", "content": "hi"}]});
+    send(addr, "POST", path, &[("Content-Type", "application/json"), ("Authorization", bearer), ("anthropic-version", "2023-06-01")], Some(body.to_string().as_bytes()))
+}
+
+fn posts(gw: &Gateway) -> usize {
+    got(gw).into_iter().filter(|g| g.head.starts_with("POST ")).count()
+}
+
+/// Covers a path the unit's cases do not: eight calls at once from two runs on the local route `l` (at most 2 calls a
+/// day) send exactly 2, and the view answers 2.
+#[test]
+fn adversary_eight_calls_at_once_from_two_runs_on_a_route_with_two_calls_a_day_send_exactly_two() {
+    let gw = gateway();
+    let r = Rig::new("day-cap-adv-concurrent", &gw);
+    let (a, _) = r.open("run-ca", "l");
+    let (b, _) = r.open("run-cb", "l");
+    let parts = [call_parts(&r, &a), call_parts(&r, &b)];
+    let addr = r.addr;
+    let statuses: Vec<u16> = std::thread::scope(|s| {
+        let handles: Vec<_> = (0..8)
+            .map(|n| {
+                let p = &parts[n % 2];
+                s.spawn(move || send_parts(addr, p).status)
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 2, "{statuses:?}");
+    assert_eq!(statuses.iter().filter(|s| **s == 429).count(), 6, "{statuses:?}");
+    assert_eq!(posts(&gw), 2, "the stand-in saw another count of calls");
+    assert_eq!(daily(&r.row("l")), [json!(0), Value::Null, json!(2), json!(2)]);
+}
+
+/// The run's side of the relay whose own cap refuses its call, after `entered` is signalled and `go` arrives: the run's
+/// admission takes as long as the test holds it (in the daemon, a read of the spend ledger under its file lock).
+struct HeldRefusal {
+    entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    go: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl Booking for HeldRefusal {
+    fn admit(&self) -> Result<(), String> {
+        if let Some(tx) = self.entered.lock().unwrap().take() {
+            let _ = tx.send(());
+        }
+        let _ = self.go.lock().unwrap().recv_timeout(Duration::from_secs(10));
+        Err("spend cap: 9 of 9 micro USD spent".to_owned())
+    }
+    fn reservation_micro_usd(&self) -> u64 {
+        7_000
+    }
+    fn step(&self) -> Option<String> {
+        Some("notes.write".to_owned())
+    }
+    fn book(&self, _line: Value, _micro_usd: u64) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// A call that the run's own cap refuses is never sent, so it must not take the route's last call of the day from
+/// another run: run B has sent 1 of the 2 calls of route `l`; run A's call is counted on the route before A's own cap
+/// refuses it; B's second call, sent while A's run decides, must be sent, and B must not be told its route's cap was
+/// reached (its run would end `stopped: llm calls`): the route ends the day with 1 call of 2.
+#[test]
+fn adversary_a_call_the_runs_own_cap_refuses_does_not_take_another_runs_last_call_of_the_route_while_it_is_decided() {
+    let gw = gateway();
+    let r = Rig::new("day-cap-adv-held", &gw);
+    let (b, book_b) = r.open("run-hb", "l");
+    assert_eq!(r.call(&b).status, 200);
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (go_tx, go_rx) = std::sync::mpsc::channel();
+    let resolved = ResolvedRoute::from(r.table.resolve("l").unwrap());
+    let a = r.relay.open("run-ha", runbook::relay::RouteTable::default().with("default", resolved, "run")).unwrap();
+    a.take_calls(Arc::new(HeldRefusal { entered: Mutex::new(Some(entered_tx)), go: Mutex::new(go_rx) }));
+    let parts_a = call_parts(&r, &a);
+    let addr = r.addr;
+    let (second_b, refused_a) = std::thread::scope(|s| {
+        let held = s.spawn(move || send_parts(addr, &parts_a));
+        entered_rx.recv_timeout(Duration::from_secs(10)).expect("run A's call never reached its run's caps");
+        let second_b = r.call(&b);
+        go_tx.send(()).unwrap();
+        (second_b, held.join().unwrap())
+    });
+    assert_eq!(refused_a.status, 429, "{}", refused_a.text());
+    assert!(refused_a.json()["error"].get("cap_key").is_none(), "{}", refused_a.text());
+    let row = daily(&r.row("l"));
+    assert_eq!(second_b.status, 200, "run B's second call was refused while the route ends the day at {row:?}: {}", second_b.text());
+    assert!(book_b.capped.lock().unwrap().is_empty(), "run B was told its route's cap was reached: {:?}", book_b.capped.lock().unwrap());
+}
+
+/// The story's outcome, "a hosted route on a page without an open-ended spend": a priced hosted route with
+/// `daily_cap_micro_usd = 3000` whose gateway answers without a usage object books 0 for each call (`relay::charge`), so
+/// its day's figure never moves and every call is sent. Five such calls must not all go out.
+#[test]
+fn adversary_a_priced_route_whose_gateway_reports_no_usage_does_not_send_calls_past_its_daily_cap_without_end() {
+    let body = r#"{"id":"m","content":[]}"#;
+    let answer = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes();
+    let gw = super::relay::gateway_answering(move |_| answer.clone(), &["alias-h", "alias-l", "alias-n", "alias-m"]);
+    let r = Rig::new("day-cap-adv-no-usage", &gw);
+    let (ticket, _) = r.open("run-nu", "h");
+    let statuses: Vec<u16> = (0..5).map(|_| r.call(&ticket).status).collect();
+    let row = daily(&r.row("h"));
+    assert!(posts(&gw) < 5, "a route with a daily cap of 3000 micro USD sent every call: statuses {statuses:?}, figures {row:?}, lines {:?}", r.lines());
+}
+
+/// A gateway whose model `c-model` answers a text that is not the classifier's JSON, and every other model a short text.
+fn classify_unreadable() -> Gateway {
+    super::relay::gateway_answering(
+        |g| {
+            let text = if g.body["model"] == "c-model" { "red, I think" } else { "ok" };
+            let body = json!({"id": "m", "type": "message", "role": "assistant", "content": [{"type": "text", "text": text}], "usage": {"input_tokens": 7, "output_tokens": 3}}).to_string();
+            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+        },
+        &["a-model", "c-model"],
+    )
+}
+
+/// A classify call is a call of the run (booked in its ledger, counted on its caps): one that the classifier route's
+/// daily cap refuses ends the run as a run at a cap ends (`stopped: llm calls`), and its `runbook.cap-reached` names the
+/// route and the key (story, "Rules taken"; `docs/daemon-api.md`, "The day's figures of a route"). The classifier route
+/// takes 1 call a day; its first answer is not the JSON asked for, so the run asks again, and that call is refused.
+#[test]
+fn adversary_a_classify_call_the_classifier_routes_daily_cap_refuses_ends_the_run_at_a_cap_naming_the_route_and_key() {
+    let gw = classify_unreadable();
+    let classify = "[routes.classify]\ngateway = \"default\"\nmodel = \"c-model\"\nkind = \"hosted\"\ndaily_max_llm_calls = 1\n[route_policy]\nclassifier = \"classify\"\n";
+    let (_h, l, _roots) = super::delegate::daemon_at("day-cap-adv-classify", &gw.base_url, &format!("{}{classify}", super::delegate::ROUTE));
+    let (status, body, _) = super::delegate::delegate(&l, &json!({"request": "green or black", "model_route": "default"}));
+    assert_eq!(status, 202, "{body}");
+    let run = super::delegate::run_of(&body);
+    let end = super::delegate::until_ended(&l, &run);
+    assert_eq!(got(&gw).into_iter().filter(|g| g.head.starts_with("POST ") && g.body["model"] == "c-model").count(), 1, "the call past the route's cap reached the gateway");
+    let row = rows(&l, "/daemon/views/routes").into_iter().find(|r| r["route"] == "classify").unwrap_or_default();
+    assert_eq!(row["daily_llm_calls"], json!(1), "{row}");
+    assert_eq!((end["run_state"].clone(), end["outcome"].clone()), (json!("Ended"), json!("stopped: llm calls")), "{end}");
+    let capped: Vec<Value> = rows(&l, &format!("/daemon/views/events?run_id={run}&after_position=0")).into_iter().filter(|e| e["kind"] == "runbook.cap-reached").map(|e| e["record"].clone()).collect();
+    assert_eq!(capped.len(), 1, "{capped:?}");
+    assert_eq!((capped[0]["route"].clone(), capped[0]["cap_key"].clone()), (json!("classify"), json!("route.classify.daily_max_llm_calls")), "{}", capped[0]);
+}
