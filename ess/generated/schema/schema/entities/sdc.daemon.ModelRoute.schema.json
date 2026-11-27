@@ -43,6 +43,36 @@
       "description": "Whether the model calls tools, as `GET /v1/models` gave it for the alias (a boolean `tool_calling`); absent when the gateway gave nothing.",
       "type": "boolean"
     },
+    "wake_booked_micro_usd": {
+      "description": "What the route's wakes booked on the day of the daemon's clock (UTC): those the gateway took (a 2xx answer) and those still out, the figure the cap of the next wake reads (WaitForRoute). Present for a managed route that declares wake_daily_cap_micro_usd, else absent.",
+      "type": "integer"
+    },
+    "wake_cap_micro_usd": {
+      "description": "The route's wake_daily_cap_micro_usd: what its wakes and its pod's time may book per day. Absent when the route is not managed or declares none.",
+      "type": "integer"
+    },
+    "wake_cost_micro_usd": {
+      "description": "The route's wake_cost_micro_usd: what one wake books. Present with wake_cap_micro_usd when the file declares it.",
+      "type": "integer"
+    },
+    "wake_last_sent_at": {
+      "description": "The instant of the newest run event `runbook.route-wake` of the route that was sent, on any day, whatever its answer. Present with wake_cap_micro_usd once a wake of the route was sent.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "wake_needed": {
+      "description": "True when the route's wake is on (wake_on_submit), the phase of this row is `stopped`, a run that takes the route is WaitingForRoute, and no wake of the route is out or may be joined (one within the route's start_wait_seconds that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day's cap, was answered 4xx, or the wake the run joined is past its wait. False otherwise. Present with wake_cap_micro_usd.",
+      "type": "boolean"
+    },
+    "ceiling_refused_at": {
+      "description": "The instant of the newest answer `spend-ceiling` to a wake of the route on the day of the daemon's clock: a run event `runbook.route-wake-answered`, or the daemon's journal line `route.wake-answered` of a run closed before it came. Absent when there is none that day.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "pod_booked_micro_usd": {
+      "description": "What the pod's time of the route booked on the day of the daemon's clock up to now at its price_per_hour_micro_usd, each run's share, also of runs that still live: the other part of what the cap counts. A wake is not sent when wake_booked_micro_usd plus this plus wake_cost_micro_usd is above wake_cap_micro_usd. Present for a managed route that declares price_per_hour_micro_usd, else absent.",
+      "type": "integer"
+    },
     "read_at": {
       "description": "When the daemon read the gateway for this row.",
       "type": "string",
@@ -66,7 +96,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:3a3c6f1b498aa9102cbe05b1863650c65d3dd150605561976fd95d8082a45497",
+    "contract_digest": "slice-sha256/2:d853d2b90edc1a2a8b675206b55a4b9e511cb658d4629ad8aa788687bfd9679b",
     "regenerate": "ess generate"
   },
   "$defs": {

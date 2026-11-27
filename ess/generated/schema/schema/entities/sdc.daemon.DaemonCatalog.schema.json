@@ -42,7 +42,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:dfb7e8a5f482fad464c7dc8285707c1db5d18b3a5befcde640aa2b4ea18c60d0",
+    "contract_digest": "slice-sha256/2:cb2a31b62255cd4b7790d42b719d967c802709fdc3a4de5a2b00ea35914230c0",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -55,7 +55,7 @@
     },
     "sdc.daemon.CatalogRoute": {
       "title": "CatalogRoute",
-      "description": "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait. No address, token or token file.",
+      "description": "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap as the view Routes answers them. No address, token or token file.",
       "x-ess-name": "sdc.daemon.CatalogRoute",
       "x-ess-kind": "struct",
       "type": "object",
@@ -103,6 +103,36 @@
         },
         "start_wait_seconds": {
           "description": "How long a run waits for the route's model to be ready; absent when the file sets none.",
+          "type": "integer"
+        },
+        "wake_booked_micro_usd": {
+          "description": "As in the view Routes: what the route's wakes booked on the day of the daemon's clock.",
+          "type": "integer"
+        },
+        "wake_cap_micro_usd": {
+          "description": "As in the view Routes: the route's wake_daily_cap_micro_usd.",
+          "type": "integer"
+        },
+        "wake_cost_micro_usd": {
+          "description": "As in the view Routes: the route's wake_cost_micro_usd.",
+          "type": "integer"
+        },
+        "wake_last_sent_at": {
+          "description": "As in the view Routes: the instant of the newest wake sent for the route.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "wake_needed": {
+          "description": "As in the view Routes: a run waits on the route and the daemon sends no wake for it.",
+          "type": "boolean"
+        },
+        "ceiling_refused_at": {
+          "description": "As in the view Routes: the instant of the day's newest spend-ceiling answer to a wake of the route.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "pod_booked_micro_usd": {
+          "description": "As in the view Routes: what the pod's time of the route booked on the day of the daemon's clock.",
           "type": "integer"
         },
         "read_at": {

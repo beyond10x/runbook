@@ -170,6 +170,11 @@ impl Gateway {
 /// A daemon on a test clock with the decider kind `model`, the stub runtime and two routes on `gw`: `qwen` (managed,
 /// waits 600 s, with the wake keys `wake`) and `claude` (hosted). The gateway's token file is in `dir`.
 fn daemon_in(dir: &Path, gw: &Gateway, wake: Value, clock: Arc<SetClock>) -> Daemon {
+    daemon_with(dir, gw, wake, json!({}), clock)
+}
+
+/// [`daemon_in`] with the routes of `extra` declared beside `qwen` and `claude`, on the same gateway.
+fn daemon_with(dir: &Path, gw: &Gateway, wake: Value, extra: Value, clock: Arc<SetClock>) -> Daemon {
     std::fs::create_dir_all(dir.join("ctx")).unwrap();
     std::fs::create_dir_all(dir.join("runbooks")).unwrap();
     let token_file = dir.join("gateway-token");
@@ -177,7 +182,8 @@ fn daemon_in(dir: &Path, gw: &Gateway, wake: Value, clock: Arc<SetClock>) -> Dae
     let gateways = json!({"local": {"base_url": gw.base_url, "token_file": token_file.display().to_string()}});
     let mut qwen = json!({"gateway": "local", "model": "qwen", "kind": "managed", "start_wait_seconds": 600});
     qwen.as_object_mut().unwrap().extend(wake.as_object().cloned().unwrap_or_default());
-    let routes = json!({"qwen": qwen, "claude": {"gateway": "local", "model": "claude", "kind": "hosted"}});
+    let mut routes = json!({"qwen": qwen, "claude": {"gateway": "local", "model": "claude", "kind": "hosted"}});
+    routes.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap_or_default());
     let mut table = RouteTable::declare(&Tables { gateways: Some(&gateways), routes: Some(&routes), ..Tables::default() }).unwrap();
     table.read_tokens().unwrap();
     let stub = Arc::new(StubRuntime::new());
@@ -839,4 +845,251 @@ fn a_pod_price_on_a_route_that_is_not_managed_is_refused_at_start_by_name() {
     assert_eq!(status, Some(2), "the daemon started: {err}");
     assert!(err.contains("routes.claude.price_per_hour_micro_usd") && err.contains("managed route only"), "the refusal does not name the key: {err}");
     assert!(!wrote, "the state directory was written");
+}
+
+// ---- story the-routes-view-answers-the-days-wake-figures ----
+
+/// The members of a route row that answer the wake and pod figures of the daemon's day.
+const FIGURES: [&str; 7] = ["wake_booked_micro_usd", "wake_cap_micro_usd", "wake_cost_micro_usd", "wake_last_sent_at", "wake_needed", "ceiling_refused_at", "pod_booked_micro_usd"];
+
+/// The row of `route` in the view `routes`.
+fn route_row(d: &Daemon, route: &str) -> Value {
+    d.routes().into_iter().find(|r| r["route"] == route).unwrap_or_else(|| panic!("the view routes has no row {route}"))
+}
+
+/// Each member of [`FIGURES`] of `row`, null when the row has none.
+fn figures_of(row: &Value) -> Value {
+    Value::Object(FIGURES.iter().map(|k| ((*k).to_owned(), row.get(*k).cloned().unwrap_or(Value::Null))).collect())
+}
+
+fn figures(d: &Daemon, route: &str) -> Value {
+    figures_of(&route_row(d, route))
+}
+
+/// The figures of a managed route with its wake keys and no pod price.
+fn want(booked: u64, cap: u64, cost: u64, last: Option<&str>, needed: bool, ceiling: Option<&str>) -> Value {
+    json!({"wake_booked_micro_usd": booked, "wake_cap_micro_usd": cap, "wake_cost_micro_usd": cost, "wake_last_sent_at": last, "wake_needed": needed, "ceiling_refused_at": ceiling, "pod_booked_micro_usd": null})
+}
+
+/// The instants of the run's events of `kind`.
+fn ats(d: &Daemon, run: &str, kind: &str) -> Vec<String> {
+    d.events_after(run, 0).into_iter().filter(|e| e["kind"] == kind).map(|e| e["at"].as_str().unwrap().to_owned()).collect()
+}
+
+/// The row of `route` of the view `routes`, once its phase is `phase` (the view reads the gateway again 15 s of the
+/// daemon's clock after its last read, in the background).
+fn until_phase(d: &Daemon, route: &str, phase: &str) -> Value {
+    let limit = Instant::now() + Duration::from_secs(10);
+    loop {
+        let row = route_row(d, route);
+        if row["phase"] == phase {
+            return row;
+        }
+        assert!(Instant::now() < limit, "the row never read the phase {phase}: {row}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// Story `the-routes-view-answers-the-days-wake-figures`: a managed route with a wake cap of 3.00 USD and a wake of
+/// 1.00 USD answers in its row of the view `routes`, of the catalog and of the MCP tool `list_routes` the day's booked
+/// wakes, the cap, the cost and the instant of the last wake sent; before any wake the day booked 0 and none was sent.
+/// The figures are the journal's: a daemon started again answers the same. At 00:00 UTC of the daemon's clock the day
+/// booked 0 again, and the last wake sent still names the wake of the day before.
+#[test]
+fn the_routes_view_answers_the_days_booked_wakes_the_cap_the_cost_and_the_last_wake_sent() {
+    let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));
+    let dir = super::state::scratch("figures-day");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(3_000_000, 1_000_000), clock.clone());
+    assert_eq!(figures(&d, "qwen"), want(0, 3_000_000, 1_000_000, None, false, None));
+
+    let first = submit(&d, "qwen");
+    until_records(&d, &first, "runbook.route-wake-answered");
+    assert_eq!(figures(&d, "qwen"), want(1_000_000, 3_000_000, 1_000_000, Some("2026-11-26T10:00:00.000Z"), false, None));
+
+    // after the first wake's wait of 600 s the next run sends a wake of its own
+    clock.set("2026-11-26T10:10:01Z");
+    let second = submit(&d, "qwen");
+    until_records(&d, &second, "runbook.route-wake-answered");
+    let sent_at = ats(&d, &second, "runbook.route-wake");
+    assert_eq!(sent_at, vec!["2026-11-26T10:10:01.000Z".to_owned()]);
+    let both = want(2_000_000, 3_000_000, 1_000_000, Some(&sent_at[0]), false, None);
+    assert_eq!(figures(&d, "qwen"), both);
+    super::openapi::check_row("Routes", &route_row(&d, "qwen"));
+    let catalog = d.catalog();
+    let in_catalog = catalog[0]["routes"].as_array().unwrap().iter().find(|r| r["route"] == "qwen").cloned().unwrap();
+    assert_eq!(figures_of(&in_catalog), both, "the catalog answers other figures: {in_catalog}");
+    let tool = runbook::mcp::tools::call(&runbook::mcp::Local(d.clone()), "list_routes", &json!({})).unwrap();
+    let listed = tool.body["rows"].as_array().unwrap().iter().find(|r| r["route"] == "qwen").cloned().unwrap();
+    assert_eq!(figures_of(&listed), both, "the MCP tool answers other figures: {listed}");
+    // a hosted route answers none of them
+    assert_eq!(figures(&d, "claude"), Value::Object(FIGURES.iter().map(|k| ((*k).to_owned(), Value::Null)).collect()));
+
+    // a daemon started again on the same state answers the same figures
+    d.stop();
+    drop(d);
+    let d = daemon_in(&dir, &gw, wake_on(3_000_000, 1_000_000), clock.clone());
+    assert_eq!(figures(&d, "qwen"), both, "a daemon started again answers other figures");
+
+    // the next day of the daemon's clock has booked nothing yet
+    clock.set("2026-11-27T00:00:00Z");
+    assert_eq!(figures(&d, "qwen"), want(0, 3_000_000, 1_000_000, Some(&sent_at[0]), false, None));
+    gw.no_call();
+}
+
+/// A wake the gateway answered 503 books nothing in the view, as at the cap, and is still the last wake sent. The next
+/// try counts while it is out, as the cap counts it, and stays booked once the gateway took it.
+#[test]
+fn a_wake_answered_503_books_nothing_in_the_view_and_a_wake_still_out_counts() {
+    let gw = Gateway::start_with("stopped", vec![unavailable(), WakeSaid::Held(202, json!({}))], (202, json!({})));
+    let dir = super::state::scratch("figures-503");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(250, 100), clock.clone());
+    let run = submit(&d, "qwen");
+    until_n_records(&d, &run, "runbook.route-wake-answered", 1);
+    assert_eq!(figures(&d, "qwen"), want(0, 250, 100, Some("2026-11-26T10:00:00.000Z"), false, None));
+
+    clock.set("2026-11-26T10:00:30Z");
+    until_wakes(&gw, 2);
+    assert_eq!(figures(&d, "qwen"), want(100, 250, 100, Some("2026-11-26T10:00:30.000Z"), false, None), "a wake out does not count");
+    gw.let_go(1);
+    until_n_records(&d, &run, "runbook.route-wake-answered", 2);
+    assert_eq!(figures(&d, "qwen"), want(100, 250, 100, Some("2026-11-26T10:00:30.000Z"), false, None));
+    gw.no_call();
+}
+
+/// A wake the gateway answered `spend-ceiling` sets `ceiling_refused_at` to that answer's instant; it books nothing. On
+/// the next day of the daemon's clock it is null again.
+#[test]
+fn a_spend_ceiling_answer_sets_ceiling_refused_at_for_the_rest_of_the_day() {
+    let gw = Gateway::start("stopped", (503, json!({"error": {"code": "spend-ceiling", "message": "a pod start would pass the daily cap"}})));
+    let (d, clock) = daemon("figures-ceiling", &gw, wake_on(500, 100));
+    clock.set("2026-11-26T10:00:00Z");
+    let run = submit(&d, "qwen");
+    assert_eq!(until_state(&d, &run, "Ended")["outcome"], "stopped: route");
+    let answered = ats(&d, &run, "runbook.route-wake-answered");
+    assert_eq!(answered.len(), 1);
+    assert_eq!(figures(&d, "qwen"), want(0, 500, 100, Some("2026-11-26T10:00:00.000Z"), false, Some(&answered[0])));
+    clock.set("2026-11-27T00:00:00Z");
+    assert_eq!(figures(&d, "qwen"), want(0, 500, 100, Some("2026-11-26T10:00:00.000Z"), false, None));
+    gw.no_call();
+}
+
+/// `wake_needed`: a run waits on the managed route whose wake is on, the route's last read phase is `stopped`, and no
+/// wake of the route is out or may be joined. While the run's own wake is out or taken it is false; once that wake's
+/// wait is over and the next run's wake would pass the day's cap, that run waits with no wake and it is true; once the
+/// model reads `ready` it is false.
+#[test]
+fn wake_needed_is_true_while_a_run_waits_on_the_stopped_route_and_no_wake_is_out_or_joinable() {
+    let gw = Gateway::start("stopped", (202, json!({})));
+    let (d, clock) = daemon("figures-needed", &gw, wake_on(150, 100));
+    assert_eq!(route_row(&d, "qwen")["wake_needed"], false, "no run waits");
+    let first = submit(&d, "qwen");
+    until_records(&d, &first, "runbook.route-wake-answered");
+    assert_eq!(route_row(&d, "qwen")["wake_needed"], false, "the run's wake was taken");
+
+    clock.set("2026-11-26T10:10:01Z");
+    until_state(&d, &first, "Ended");
+    let second = submit(&d, "qwen");
+    assert_eq!(until_records(&d, &second, "runbook.route-wake")[0]["reason"], "wake cap reached");
+    let row = route_row(&d, "qwen");
+    assert_eq!((row["phase"].clone(), row["wake_needed"].clone()), (json!("stopped"), json!(true)), "{row}");
+
+    gw.set_phase("ready");
+    clock.set("2026-11-26T10:10:16Z");
+    assert_eq!(until_phase(&d, "qwen", "ready")["wake_needed"], false);
+    gw.no_call();
+}
+
+/// The figures answer for a managed route that declares a wake cap. A hosted, a local and a managed route without wake
+/// keys answer none of them; a managed route whose wake is off (a cap and a cost, no `wake_on_submit`) answers its cap,
+/// its cost and the day's booking, and needs no wake while a run waits on it stopped.
+#[test]
+fn a_hosted_a_local_or_a_bare_managed_route_answers_no_figures_and_a_route_with_the_wake_off_needs_no_wake() {
+    let gw = Gateway::start("stopped", (202, json!({})));
+    let dir = super::state::scratch("figures-kinds");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let extra = json!({"llama": {"gateway": "local", "model": "llama", "kind": "local"}, "bare": {"gateway": "local", "model": "bare", "kind": "managed"}});
+    let d = daemon_with(&dir, &gw, json!({"wake_daily_cap_micro_usd": 500, "wake_cost_micro_usd": 100}), extra, clock);
+    let run = submit(&d, "qwen");
+    until_state(&d, &run, "WaitingForRoute");
+    let row = route_row(&d, "qwen");
+    assert_eq!(row["phase"], "stopped", "{row}");
+    assert_eq!(figures_of(&row), want(0, 500, 100, None, false, None));
+    for route in ["claude", "llama", "bare"] {
+        let row = route_row(&d, route);
+        assert!(FIGURES.iter().all(|k| row.get(*k).is_none()), "{route} answers a figure: {row}");
+    }
+    assert_eq!(gw.wakes(), 0);
+    gw.no_call();
+}
+
+/// The view answers the figures the wake cap is checked against. A priced managed route (3.00 USD per hour, a cap of
+/// 2.80 USD, a wake of 0.50 USD): two wakes the gateway took book 1.00 USD; a run on the woken pod books its time up to
+/// now while it lives (15 minutes, 0.75 USD) and its share once it ended (30 minutes, 1.50 USD). The next wake would bring
+/// the day to 3.00 USD: it is not sent, and its event holds the view's figures (`booked_micro_usd` the wakes and the pod's
+/// time, `pod_micro_usd` the pod's time). The run that waits with no wake makes `wake_needed` true.
+#[test]
+fn the_view_answers_the_figures_the_wake_cap_is_checked_against_with_the_pods_time() {
+    let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));
+    let dir = super::state::scratch("figures-cap");
+    let clock = Arc::new(SetClock::at("2026-11-26T09:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, priced(2_800_000, 500_000), clock.clone());
+    let pair = |d: &Daemon| {
+        let f = figures(d, "qwen");
+        (f["wake_booked_micro_usd"].clone(), f["pod_booked_micro_usd"].clone())
+    };
+    assert_eq!(pair(&d), (json!(0), json!(0)));
+
+    let never = submit(&d, "qwen");
+    until_records(&d, &never, "runbook.route-wake-answered");
+    clock.set("2026-11-26T09:10:00Z");
+    until_state(&d, &never, "Ended");
+    assert_eq!(pair(&d), (json!(500_000), json!(0)), "a pod never ready books no time");
+
+    clock.set("2026-11-26T10:00:00Z");
+    let o = d.submit_run(SubmitRun { runbook_id: "held".into(), intake: "x".into(), autonomy: Some(Autonomy::A5), decider: Some("model".into()), model_route: Some("qwen".into()), ..SubmitRun::default() }).unwrap();
+    let used = o.run_id.unwrap();
+    until_records(&d, &used, "runbook.route-wake-answered");
+    gw.set_phase("ready");
+    clock.set("2026-11-26T10:00:05Z");
+    until_state(&d, &used, "WaitingOnDecision");
+    clock.set("2026-11-26T10:15:05Z");
+    assert_eq!(pair(&d), (json!(1_000_000), json!(750_000)), "a run that lives books its time up to now");
+    clock.set("2026-11-26T10:30:05Z");
+    answer(&d, &used);
+    assert_eq!(pair(&d), (json!(1_000_000), json!(1_500_000)));
+
+    gw.set_phase("stopped");
+    clock.set("2026-11-26T11:00:00Z");
+    let before = figures(&d, "qwen");
+    let late = submit(&d, "qwen");
+    let refused = until_records(&d, &late, "runbook.route-wake");
+    assert_eq!(refused[0]["reason"], "wake cap reached", "{refused:?}");
+    let (booked, pod, cost, cap) = (before["wake_booked_micro_usd"].as_u64().unwrap(), before["pod_booked_micro_usd"].as_u64().unwrap(), before["wake_cost_micro_usd"].as_u64().unwrap(), before["wake_cap_micro_usd"].as_u64().unwrap());
+    assert!(booked + pod + cost > cap, "{before}");
+    assert_eq!((refused[0]["booked_micro_usd"].clone(), refused[0]["pod_micro_usd"].clone(), refused[0]["cap_micro_usd"].clone()), (json!(booked + pod), json!(pod), json!(cap)), "the cap read other figures than the view: {before}");
+    assert_eq!(pair(&d), (json!(booked), json!(pod)), "a wake not sent booked something");
+    clock.set("2026-11-26T11:00:15Z");
+    assert_eq!(until_phase(&d, "qwen", "stopped")["wake_needed"], true);
+    gw.no_call();
+}
+
+/// The OpenAPI document declares the figures as optional members of a row of the view `routes` and of a route of the
+/// catalog, with their types: the MCP tool `list_routes` answers the view's body.
+#[test]
+fn the_openapi_document_declares_the_wake_figures_of_a_route_row_and_of_a_catalog_route() {
+    let doc = super::openapi::doc();
+    let types = [("wake_booked_micro_usd", "integer"), ("wake_cap_micro_usd", "integer"), ("wake_cost_micro_usd", "integer"), ("wake_last_sent_at", "string"), ("wake_needed", "boolean"), ("ceiling_refused_at", "string"), ("pod_booked_micro_usd", "integer")];
+    for schema in ["sdc.daemon.Routes.Row", "sdc.daemon.CatalogRoute"] {
+        let s = &doc["components"]["schemas"][schema];
+        for (member, ty) in types {
+            assert_eq!(s["properties"][member]["type"], ty, "{schema}.{member}: {}", s["properties"][member]);
+        }
+        for member in ["wake_last_sent_at", "ceiling_refused_at"] {
+            assert_eq!(s["properties"][member]["format"], "date-time", "{schema}.{member}");
+        }
+        let required: Vec<&str> = s["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(FIGURES.iter().all(|k| !required.contains(k)), "{schema} requires a figure: {required:?}");
+    }
 }
