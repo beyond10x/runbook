@@ -184,13 +184,19 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.14.0`; nothing is published to crates.io. The latest is 0.14.0 (2026-11-27).
+`0.15.0`; nothing is published to crates.io. The latest is 0.15.0 (2026-11-28).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- Unreleased since 0.14.0 (`CHANGELOG.md`, [Unreleased]): the aep pin is aep 0.81.0, which has static musl archives,
-  and a musl `sdc-conform` installs the musl aep; `task test:driver` runs that static aep on every Linux host, so a
-  host with glibc older than 2.39 runs the driver tests.
+- New in 0.15.0 over 0.14.0 (nothing is unreleased): a delegation can change a repository the operator lists in
+  `runbook.toml` on its own branch, a first slice at `--confinement local` only; a route of any kind takes a daily spend
+  or call cap, and the view `routes` answers each route's figures of the day; a wake of a managed route is booked only
+  when the gateway took it; the agent node of a delegation gets no more turns than its run has model calls left;
+  `runbook.toml` names the daemon's context roots; the aep pin is aep 0.81.0 with static musl archives, and the driver
+  tests run that static aep on every Linux host. Three changes are breaking: a missing context root is created with
+  mode 0700 and a root with a group or other write bit stops the start, the copy of a run's context leaves out `.git`
+  and excluded paths within a bound, and a managed route with a pod price counts the pod's time against its daily wake
+  cap. No evaluation run was made on this code ([docs/releases/0.15.0.md](docs/releases/0.15.0.md)).
 - New in 0.14.0 over 0.13.0: a release tag builds gnu and static musl archives of an installed
   prefix ([docs/releasing.md](docs/releasing.md), "The archives"); `runbook` links Loom 0.63.0; a failed model call
   booked after its step ended no longer fails a run, and a caller that hangs up ends its call at the gateway; a case of

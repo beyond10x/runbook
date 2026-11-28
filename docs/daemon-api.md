@@ -850,8 +850,9 @@ the run page has the tab Metrics when the view answers a row for the run on scre
 no row (`tabsOf` in `ui/web/source.js`); the pane says the row's times in the page's clock words (`ui/web/clock.js`)
 and its durations, counts and costs in the step list's (`ui/web/runsteps.js`). The page's step list takes a step's model calls, tokens and cost from the row
 where the run's events name none (a run on no route books them in `runbook.cost-booked`; `withViewCalls` in
-`ui/web/runsteps.js`) and says a count the row leaves out as not known, never 0. The view gives no count per route:
-the daemon still serves no count of today's calls or booked spend per route (the ledger's entries hold no instant).
+`ui/web/runsteps.js`) and says a count the row leaves out as not known, never 0. This view gives no count per route:
+the view `routes` answers today's calls and booked spend of each route (`daily_llm_calls`, `daily_booked_micro_usd`,
+"The day's figures of a route").
 
 ### A request read from its case
 
@@ -1417,8 +1418,8 @@ Without `--ui`, `GET /` is `404`.
   read failed. The button "Routes" opens the Routes view: each route of the view `routes` with its alias, kind,
   gateway, status, phase, wires and `read_at`, as text nodes. The page reads the view `routes` at most once every
   15 s, whatever the answer, and only while it shows a run on a route or the Routes view is open (every 15 s
-  while it is open); a read that fails keeps the rows of the last read that answered and says so. The daemon
-  serves no count of today's calls or booked spend per route, and the view says so. With the Routes view open, a
+  while it is open); a read that fails keeps the rows of the last read that answered and says so. The Routes
+  view does not show the day's figures the view `routes` answers ("The day's figures of a route"). With the Routes view open, a
   daemon that answers `403` to every request is asked at most 4 times a second, as without it
   (`ui/test/daemon-routes.spec.mjs`).
 
