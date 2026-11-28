@@ -10,7 +10,7 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 3}
@@ -82,3 +82,10 @@ this story):
 - One change of the row with `story:the-routes-row-says-how-the-newest-wake-was-answered` and
   `story:the-routes-row-says-whether-a-new-run-would-join-a-wake`: all three add members to `wake_figures` and to the
   same three ESS types.
+
+## Choices taken
+
+- The members keep the story's names, `wake_cap_refused_at` and `wake_cap_refused_cap_micro_usd`, both optional.
+- "On the daemon's day" is the `day` of the refusal's record, the day the cap counted it on, compared with the day of
+  the daemon's clock. A wake of the same day sent after the refusal (under a cap raised at a restart) leaves the two
+  members: they say the newest refusal of the day and its cap, and `wake_cap_micro_usd` beside them says the cap now.

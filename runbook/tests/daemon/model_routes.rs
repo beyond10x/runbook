@@ -129,7 +129,7 @@ fn two_routes_on_one_standin_gateway_are_listed_with_alias_kind_wires_and_status
         without_read_at(&rows),
         vec![
             json!({"route": "claude", "gateway": "default", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "listed", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
-            json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped", "start_wait_seconds": 600, "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
         ]
     );
     // what the daemon asked: the gateway's readiness, its list, the status route of /v1/status and, as the gateway

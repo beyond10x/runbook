@@ -10,7 +10,7 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-28T03:31:06Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-28T03:31:06Z", actor: "agent:runbook", revision: 3}
@@ -84,3 +84,14 @@ this story), a managed route with the wake on and `start_wait_seconds = 600`:
 - One change of the row with `story:the-routes-row-says-how-the-newest-wake-was-answered` and
   `story:a-refused-wake-records-the-cap-in-force`: all three add members to `wake_figures` and to the same three ESS
   types. It reads the route's wait that `story:the-routes-view-row-answers-start-wait-seconds` puts into the row.
+
+## Choices taken
+
+- The members keep the story's names. `wake_joinable` is false when the route's wake is off (`wake_on_submit` not
+  true), also when the journal holds a wake within the wait from a daemon that had it on: with the wake off no run wakes
+  the route, so none joins. The row carries no `wake_on_submit`; whether a run submitted now wakes the route at all
+  turns on the row's phase being `stopped`.
+- `wake_joinable_until` is the wake's `at` plus the route's `start_wait_seconds`; a run joins before that instant, not
+  at it (the rule's `now - at < wait`). With no `start_wait_seconds` the wait is 0 and no wake is joinable.
+- The rule is one function, `joinable_wake` over the walk `sent_wakes`; `wake_sent_within` (what the wake reads) and
+  the view call it, so they never differ.

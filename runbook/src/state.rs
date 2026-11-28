@@ -579,6 +579,12 @@ impl State {
         self.taken_up.remove(run_id);
     }
 
+    /// Whether this process took the run up ([`State::take_up`]) and its run thread has not returned: also after a cancel
+    /// moved the run out of the live states, while the thread still waits, for one, on the answer to the run's wake.
+    pub fn is_taken_up(&self, run_id: &str) -> bool {
+        self.taken_up.contains(run_id)
+    }
+
     pub fn run_by_key(&self, key: &str) -> Option<&Run> {
         self.keys.get(key).map(|i| &self.runs[*i])
     }
