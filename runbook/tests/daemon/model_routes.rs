@@ -128,8 +128,8 @@ fn two_routes_on_one_standin_gateway_are_listed_with_alias_kind_wires_and_status
     assert_eq!(
         without_read_at(&rows),
         vec![
-            json!({"route": "claude", "gateway": "default", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "listed"}),
-            json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped"}),
+            json!({"route": "claude", "gateway": "default", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "listed", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
         ]
     );
     // what the daemon asked: the gateway's readiness, its list, the status route of /v1/status and, as the gateway
@@ -173,9 +173,9 @@ fn the_status_of_v1_status_is_read_for_every_kind_when_the_gateway_serves_it_and
     assert_eq!(
         without_read_at(&rows),
         vec![
-            json!({"route": "claude", "gateway": "gw", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "ready", "phase": "ready"}),
-            json!({"route": "local-qwen", "gateway": "gw", "alias": "qwen-local", "kind": "local", "wires": ["chat"], "status": "not-ready", "phase": "stopped"}),
-            json!({"route": "qwen", "gateway": "gw", "alias": "qwen", "kind": "managed", "wires": ["chat"], "status": "ready", "phase": "starting"}),
+            json!({"route": "claude", "gateway": "gw", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "ready", "phase": "ready", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "local-qwen", "gateway": "gw", "alias": "qwen-local", "kind": "local", "wires": ["chat"], "status": "not-ready", "phase": "stopped", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "qwen", "gateway": "gw", "alias": "qwen", "kind": "managed", "wires": ["chat"], "status": "ready", "phase": "starting", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
         ],
         "callable decides ready, not the phase"
     );
@@ -224,7 +224,7 @@ fn a_local_route_on_a_gateway_without_its_status_routes_is_listed_and_not_unreac
     let l = live("routes-local-404", &[], Some(&file));
     let rows = rows(&l, "/daemon/views/routes");
     rows.iter().for_each(|r| openapi::check_row("Routes", r));
-    assert_eq!(without_read_at(&rows), vec![json!({"route": "local-qwen", "gateway": "gw", "alias": "qwen-local", "kind": "local", "wires": ["chat"], "status": "listed"})]);
+    assert_eq!(without_read_at(&rows), vec![json!({"route": "local-qwen", "gateway": "gw", "alias": "qwen-local", "kind": "local", "wires": ["chat"], "status": "listed", "daily_booked_micro_usd": 0, "daily_llm_calls": 0})]);
     assert_eq!(gw.lines(), ["GET /ready", "GET /v1/models", "GET /v1/status", "GET /v1/models/qwen-local/status"]);
 }
 
@@ -255,9 +255,9 @@ fn what_a_gateway_says_reaches_a_row_only_as_short_visible_words() {
     assert_eq!(
         without_read_at(&rows),
         vec![
-            json!({"route": "a", "gateway": "gw", "alias": "a", "kind": "hosted", "wires": ["chat", "messages"], "status": "ready"}),
-            json!({"route": "b", "gateway": "gw", "alias": "b", "kind": "managed", "wires": many[..16], "status": "not-ready"}),
-            json!({"route": "c", "gateway": "gw", "alias": "c", "kind": "hosted", "wires": [], "status": "listed"}),
+            json!({"route": "a", "gateway": "gw", "alias": "a", "kind": "hosted", "wires": ["chat", "messages"], "status": "ready", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "b", "gateway": "gw", "alias": "b", "kind": "managed", "wires": many[..16], "status": "not-ready", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "c", "gateway": "gw", "alias": "c", "kind": "hosted", "wires": [], "status": "listed", "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
         ],
         "a wire or a phase that is not a short visible word is left out, at most 16 wires are kept, and a status with neither a phase nor a callable that is a boolean is no status"
     );
@@ -415,6 +415,6 @@ fn a_gateway_table_alone_works_as_today_and_a_route_names_it_as_the_gateway_defa
     let file = format!("{gateway}[routes.qwen]\ngateway = \"default\"\nmodel = \"qwen\"\nkind = \"managed\"\n");
     let l = live("routes-legacy-route", &[], Some(&file));
     let rows = rows(&l, "/daemon/views/routes");
-    assert_eq!(without_read_at(&rows), vec![json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped"})]);
+    assert_eq!(without_read_at(&rows), vec![json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped", "daily_booked_micro_usd": 0, "daily_llm_calls": 0})]);
     assert!(!gw.heads().is_empty() && gw.heads().iter().all(|h| h.contains(&format!("Authorization: Bearer {TOKEN}\r\n"))), "{:?}", gw.heads());
 }

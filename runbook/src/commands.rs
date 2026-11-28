@@ -1050,9 +1050,10 @@ fn pod_booked(st: &State, route: &str, price: u64, day: &str, now: i64) -> u64 {
     crate::pod_time::shares(&uses, from, to).into_iter().map(|millis| crate::pod_time::cost(millis, price)).fold(0u64, u64::saturating_add)
 }
 
-/// The day a wake books on: the date (UTC) of the daemon's clock, the first 10 characters of its instant.
+/// The day a wake books on: the date (UTC) of the daemon's clock, the day a route's daily caps count on too
+/// ([`crate::route_day::day_of`]).
 fn wake_day(st: &State) -> String {
-    st.now().chars().take(10).collect()
+    crate::route_day::day_of(st.now_millis())
 }
 
 /// What the daily cap of the route `name` counts on `day` up to `now`: what its wakes booked ([`wakes_booked`]) and, for a
@@ -1278,6 +1279,9 @@ struct Inner {
     stopping: AtomicBool,
     /// The view `routes` over `policy.routes`, with its last read of the gateways.
     routes: crate::routes::Listing,
+    /// The day's figures of the declared routes: what the relay booked and sent on each per day of the daemon's clock,
+    /// which its daily caps are held against (`crate::route_day`).
+    days: Arc<crate::route_day::RouteDays>,
 }
 
 /// The daemon: its state, its runtime and the command layer over both. Cheap to clone.
@@ -1340,14 +1344,17 @@ impl Daemon {
         }
         let state_dir = std::path::absolute(&cfg.state_dir).map_err(|_| io::Error::other("the state directory cannot be made absolute: the daemon has no current directory"))?;
         let cfg = Config { context_roots: roots, state_dir, ..cfg };
-        let state = State::open_with_clock(&cfg.state_dir, clock)?;
+        let state = State::open_with_clock(&cfg.state_dir, clock.clone())?;
         let routes = crate::routes::Listing::new(policy.routes.clone());
+        // the figures of the routes' days are rebuilt from the spend ledgers of the daemon's runs (`engine::Gate::open`)
+        let days = Arc::new(crate::route_day::RouteDays::open(&policy.routes, clock, &cfg.state_dir.join("ledgers")));
         let d = Daemon {
             inner: Arc::new(Inner {
                 daemon_id: uuid::Uuid::now_v7().to_string(),
                 cfg,
                 policy,
                 routes,
+                days,
                 state: Mutex::new(state),
                 runtime,
                 cancels: Mutex::new(HashMap::new()),
@@ -2584,14 +2591,18 @@ impl Daemon {
     /// The view `Routes` (wire name `routes`): the declared model routes, by name, with what their gateways said
     /// at the last read, which is at most [`crate::routes::READ_EVERY_MILLIS`] of the daemon's clock old. A row
     /// names the gateway by name and holds no address, token or price. A managed route's row also answers the figures of
-    /// the day of the daemon's clock that its wake cap counts ([`wake_figures`]), read from the state when it is asked.
+    /// the day of the daemon's clock that its wake cap counts ([`wake_figures`]), read from the state when it is asked. Every
+    /// row answers the route's figures of that day that its daily caps are held against (`daily_booked_micro_usd`,
+    /// `daily_llm_calls`, and the caps it declares: [`crate::route_day::RouteDays::figures`]), read from the same figures
+    /// the relay admits a call by.
     pub fn routes(&self) -> Vec<Value> {
         let mut rows = self.gateway_rows();
         let st = self.st();
         for row in &mut rows {
             let name = row["route"].as_str().unwrap_or_default().to_owned();
             let phase = row["phase"].as_str().map(str::to_owned);
-            let figures = wake_figures(&st, &self.inner.policy.routes, &name, phase.as_deref());
+            let mut figures = wake_figures(&st, &self.inner.policy.routes, &name, phase.as_deref());
+            figures.extend(self.inner.days.figures(&name));
             if let Some(m) = row.as_object_mut().filter(|_| !figures.is_empty()) {
                 // the figures go before `read_at`, the last member of a row
                 let read_at = m.shift_remove("read_at");
@@ -2602,6 +2613,12 @@ impl Daemon {
             }
         }
         rows
+    }
+
+    /// The day's figures of the declared routes, for the relay (`crate::relay::Relay::count_days`): the one place the
+    /// daily caps of a route are held and the view `routes` reads them.
+    pub fn route_days(&self) -> Arc<crate::route_day::RouteDays> {
+        self.inner.days.clone()
     }
 
     /// The rows of the view `routes` as the gateways were read last, without the day's figures.

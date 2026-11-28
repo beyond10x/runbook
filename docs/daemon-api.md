@@ -165,7 +165,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
 | `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
-| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `read_at`, and for a managed route with a wake cap or a pod price the day's wake and pod figures (below, "The day's figures of a route") |
+| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `read_at`, for a managed route with a wake cap or a pod price the day's wake and pod figures, and for every route the figures of its daily caps (below, "The day's figures of a route") |
 | `delegation-result` | `run_id` | one row: what a delegation's run has come to, its result text and its calls (below, "A delegation") |
 | `run-metrics` | `run_id` | one row: what the run took, its times, a row per step and the totals of its model calls, tokens and cost (below, "The metrics of a run") |
 | `catalog` | none | one row: the declared routes with their prices, the runbooks with their purpose, inputs and the admission of their route entries, and the terms of a delegation (below, "The catalog") |
@@ -458,6 +458,40 @@ row reads null). A wake is not sent when `wake_booked_micro_usd + pod_booked_mic
 `wake_cap_micro_usd`; its `runbook.route-wake` holds `booked_micro_usd`, the first two added, and `pod_micro_usd`,
 the second. The phase is the one of the row (the last read of the gateway, at most 15 s of the daemon's clock old);
 the figures are read when the view is asked.
+
+Every row also answers the figures of the route's daily caps on the same day (story
+`any-route-kind-takes-a-daily-cap`; `docs/model-routes.md`, section 5). They are read from the figures the relay holds
+each call against (`RouteDays`, `runbook/src/route_day.rs`), so the view and the refusal never differ:
+
+| Member | When present | What |
+|---|---|---|
+| `daily_booked_micro_usd` | every route | what the relay booked on the route today: each call sent today at the cost of its ledger line (its reservation when its cost is not known), counted when its answer has ended |
+| `daily_cap_micro_usd` | `daily_cap_micro_usd` declared | the route's `daily_cap_micro_usd` |
+| `daily_llm_calls` | every route | the calls the relay sent on the route today, each counted as it was admitted |
+| `daily_max_llm_calls` | `daily_max_llm_calls` declared | the route's `daily_max_llm_calls` |
+
+A route of any kind may declare either cap in `runbook.toml` (`docs/model-routes.md`, section 1): a whole number above
+0, else the daemon refuses to start and names the key; `daily_cap_micro_usd` only on a route that declares a price
+(a route without one books a call's reservation, not its cost, so its calls are capped by `daily_max_llm_calls`).
+Before a call is sent the relay holds it against its route's day: it is refused `429 cap-reached`, with `cap_key`
+`route.<name>.daily_max_llm_calls`, when `daily_llm_calls` has reached the cap of calls, and with `cap_key`
+`route.<name>.daily_cap_micro_usd` when `daily_booked_micro_usd` has reached the spend cap; the cap of calls is read
+first. Nothing is sent, and the call is not taken against the run's caps. A call is counted on its route only after
+the run's caps took it, so a call its run refuses holds no count of the route's day meanwhile; one the route refuses
+at that count is given back to the run's caps. The spend cap holds the booked figure, so
+the third of three calls of 1000 micro USD under a cap of 3000 is sent and the fourth is refused; a call is booked
+before its caller sees the end of its answer, so no call is sent once the figure has reached the cap, and the last
+call sent below it (with any sent beside it) may take the figure above the cap by its cost. The day is the UTC date of
+the daemon's clock, the day a wake books on; a call counts on the day it was admitted. Two runs on one route share its
+figures. The relay writes that day into each call's ledger line and its `runbook.model-call` (`day`), and a daemon
+started again rebuilds the figures from the model-call lines of every ledger under `ledgers/` (a call in flight when
+the daemon was killed has no line and is not counted; a ledger that cannot be read refuses every call on a route with
+a daily cap). A run whose call a route's daily cap refused ends as a run at a cap ends ("Caps of a run"):
+`stopped: llm calls` for `daily_max_llm_calls`, `stopped: spend cap` for `daily_cap_micro_usd`, after the step that
+made the call, at once for a call of its decider (it does not wait for a person) and for a classify call of a
+delegation (it ends `Ended`, not `FailedToStart`), and its `runbook.cap-reached` names `route` and `cap_key` beside
+`cap` and `detail`. An answer with no usage at all books its reservation on a priced route too, so a gateway that
+reports no usage still fills `daily_cap_micro_usd`.
 
 ### The copy of a context
 
@@ -1448,7 +1482,9 @@ On a loopback listener:
   role `<role>` first) or the bare role, a trailing bracketed suffix (`runbook-default[1m]`) dropped. No role's name
   starts with `runbook-` (above, "The route of a run"). The relay answers in the gateway's shape,
   `{"error": {"code", "message"}}`: `400 route-refused` for a role the run has no route for (the message names
-  the run's roles), `429 cap-reached` for a call past the run's `max_llm_calls` or spend cap (nothing is sent),
+  the run's roles), `429 cap-reached` for a call past the run's `max_llm_calls` or spend cap (nothing is sent), and
+  for a call past its route's daily cap with `cap_key` `route.<name>.daily_cap_micro_usd` or
+  `route.<name>.daily_max_llm_calls` beside `code` (nothing is sent; "The day's figures of a route"),
   `400 bad-request` for a body that is no JSON object, `503 run-not-ready` before the run takes calls, and
   `502 route-unavailable` when the gateway gives no answer. Every other answer is the gateway's, passed back
   unchanged and streamed as it comes (its `content-type`, `x-llm-gateway-call` and other headers but those of
@@ -1462,8 +1498,8 @@ On a loopback listener:
   cost is not known (no price, or no tokens reported) books its reservation with `cost_known: false`: the step's
   largest reservation while its step runs, else what one call of the decider may cost, at most what the cap has
   left, fixed as the call is admitted, so a call answered after its step's program was killed books what its step
-  held. An answer with no usage at all costs 0 at the route's declared prices, and on a route without prices, of
-  any kind, books its reservation. A step whose calls the relay booked or still takes costs those calls; its own
+  held. An answer with no usage at all is a call of unknown cost on a route of any kind, priced or not, and
+  books its reservation. A step whose calls the relay booked or still takes costs those calls; its own
   reservation is released. A `stream_options` that is `null` or no object is replaced by
   `{"include_usage": true}`. A call that was sent is booked once. A caller that hangs up before the answer has ended
   ends the call at the gateway: the relay closes its request to the gateway within a second and books the call with

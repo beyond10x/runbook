@@ -305,8 +305,8 @@ const CACHED_ANSWER: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json
 const NO_USAGE_ANSWER: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 25\r\nConnection: close\r\n\r\n{\"id\":\"msg\",\"content\":[]}";
 
 /// The ledger line of a call counts the input read from and written to the prompt cache in fields of its own beside
-/// `input_tokens`, and a declared input price takes them; a call answered with no usage on a route without prices books
-/// its reservation with `cost_known: false`, on a route with prices 0 at those prices.
+/// `input_tokens`, and a declared input price takes them; a call answered with no usage books its reservation with
+/// `cost_known: false`, on a route without prices and on one with prices alike.
 #[test]
 fn a_calls_line_counts_the_cached_input_and_a_call_with_no_usage_books_its_reservation_on_an_unpriced_route() {
     let s = served("relay-cached");
@@ -331,7 +331,7 @@ fn a_calls_line_counts_the_cached_input_and_a_call_with_no_usage_books_its_reser
     };
     assert_eq!(of(0), (json!(2), json!(30_000), json!(1_000), json!(7), json!(true), 31_002 + 14), "{:?}", lines[0]);
     assert_eq!(of(1), (Value::Null, Value::Null, Value::Null, Value::Null, json!(false), 7_000), "no usage on an unpriced local route: {:?}", lines[1]);
-    assert_eq!(of(2), (Value::Null, Value::Null, Value::Null, Value::Null, json!(true), 0), "no usage on a priced route: {:?}", lines[2]);
+    assert_eq!(of(2), (Value::Null, Value::Null, Value::Null, Value::Null, json!(false), 7_000), "no usage on a priced route is a cost not known: its reservation: {:?}", lines[2]);
 }
 
 /// A gateway on a loopback port that reads one whole call, keeps it, and answers `answer` only once the test sends on

@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c9f098d4ac32deb14a363c9aa2c35e441375d6a4110ac635a60fd79f207560bb",
+    "contract_digest": "slice-sha256/2:24c132ebc441db4ff0943c986a238fc9ff54c374a181a1d43e1bada0c63d420d",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.CatalogRoute": {
       "title": "CatalogRoute",
-      "description": "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap as the view Routes answers them. No address, token or token file.",
+      "description": "A declared model route as the catalog lists it: what the view Routes says of it (the name, the gateway by name, the alias, the kind, the wires, the status, the phase and when the gateway was read, with the context length and the tool calling the gateway listed), and what the daemon's file declares of it beside its address: the prices and the wait, and the figures of the day of its wake cap and of its daily caps as the view Routes answers them. No address, token or token file.",
       "x-ess-name": "sdc.daemon.CatalogRoute",
       "x-ess-kind": "struct",
       "type": "object",
@@ -89,6 +89,22 @@
         },
         "pod_booked_micro_usd": {
           "description": "As in the view Routes: what the pod's time of the route booked on the day of the daemon's clock.",
+          "type": "integer"
+        },
+        "daily_booked_micro_usd": {
+          "description": "As in the view Routes: what the relay booked on the route on the day of the daemon's clock.",
+          "type": "integer"
+        },
+        "daily_cap_micro_usd": {
+          "description": "As in the view Routes: the route's daily_cap_micro_usd.",
+          "type": "integer"
+        },
+        "daily_llm_calls": {
+          "description": "As in the view Routes: the calls the relay sent on the route on the day of the daemon's clock.",
+          "type": "integer"
+        },
+        "daily_max_llm_calls": {
+          "description": "As in the view Routes: the route's daily_max_llm_calls.",
           "type": "integer"
         },
         "read_at": {

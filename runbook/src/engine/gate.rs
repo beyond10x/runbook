@@ -318,6 +318,9 @@ pub struct RelayBooking {
     taken: AtomicU64,
     /// The run ended: what is booked now is no event of the run any more.
     closed: AtomicBool,
+    /// The first call of the run a route's daily cap refused (`crate::route_day`): the route, the key and the figure. The
+    /// run ends at that cap ([`Gate::route_cap`]).
+    route_capped: Mutex<Option<(String, String, String)>>,
 }
 
 /// `counter + n`, held at `u64::MAX`.
@@ -432,6 +435,23 @@ impl crate::relay::Booking for RelayBooking {
         drop(pending);
         booked
     }
+
+    fn route_capped(&self, route: &str, key: &str, detail: &str) {
+        lock(&self.route_capped).get_or_insert_with(|| (route.to_owned(), key.to_owned(), detail.to_owned()));
+    }
+
+    /// The counts [`Self::admit`] took for a call that was not sent: the run's call, the call in flight and, in a step,
+    /// the step's.
+    fn withdraw(&self) {
+        let less = |counter: &AtomicU64| {
+            let _ = counter.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+        };
+        less(&self.meter.calls);
+        less(&self.in_flight);
+        if self.step.name().is_some() {
+            less(&self.taken);
+        }
+    }
 }
 
 pub struct Gate {
@@ -474,7 +494,7 @@ impl Gate {
     /// what this returns, and a cost record of a bound program carries no cost (`CostReader::routed`). `step` holds
     /// the step in flight.
     pub fn route(&mut self, step: Arc<StepInFlight>) -> Arc<RelayBooking> {
-        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), failed_calls: Mutex::new(Vec::new()), late_failed: Mutex::new(Vec::new()), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false) });
+        let booking = Arc::new(RelayBooking { held: self.held.clone(), meter: self.meter.clone(), max_calls: self.caps.max_llm_calls, step, pending: Mutex::new(Vec::new()), failed: Mutex::new(None), failed_calls: Mutex::new(Vec::new()), late_failed: Mutex::new(Vec::new()), max_call: AtomicU64::new(u64::MAX), in_flight: AtomicU64::new(0), booked: AtomicU64::new(0), taken: AtomicU64::new(0), closed: AtomicBool::new(false), route_capped: Mutex::new(None) });
         self.reader = std::mem::take(&mut self.reader).routed();
         self.routed = Some(booking.clone());
         booking
@@ -678,6 +698,22 @@ impl Gate {
         sink.record("runbook.cap-reached", json!({"cap": cap.name(), "detail": detail}));
         self.persist();
         cap.outcome().to_owned()
+    }
+
+    /// Whether a route's daily cap refused a call of the run that [`Self::route_cap`] has not taken yet.
+    pub fn route_capped(&self) -> bool {
+        self.routed.as_ref().is_some_and(|b| lock(&b.route_capped).is_some())
+    }
+
+    /// A route's daily cap refused a call of the run (`crate::route_day`, taken once): the run ends as a run at a cap
+    /// ends, at the cap of the same figure (`stopped: llm calls` for `daily_max_llm_calls`, `stopped: spend cap` for
+    /// `daily_cap_micro_usd`), and its `runbook.cap-reached` names the route and the key. None when no call was refused so.
+    pub fn route_cap(&self, sink: &dyn EventSink) -> Option<String> {
+        let (route, key, detail) = lock(&self.routed.as_ref()?.route_capped).take()?;
+        let cap = if key.ends_with(crate::route_day::DAILY_CALLS) { Cap::Calls } else { Cap::Spend };
+        sink.record("runbook.cap-reached", json!({"cap": cap.name(), "detail": detail, "route": route, "cap_key": key}));
+        self.persist();
+        Some(cap.outcome().to_owned())
     }
 
     /// Writes the usage into the run's directory (best effort: the view falls back on nothing).

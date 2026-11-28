@@ -1,8 +1,9 @@
 //! The model routes a daemon declares (`docs/model-routes.md`, section 1; `docs/daemon-api.md`, "Model routes").
 //!
 //! The daemon's `runbook.toml` declares its gateways (`[gateways.<name>]`: an address and a token file), its routes
-//! (`[routes.<name>]`: a gateway by name, the gateway's alias of a model, the kind, and optional prices and wait) and
-//! its policy (`[route_policy]`: the route of a run that names none and the route of a delegation's classify calls).
+//! (`[routes.<name>]`: a gateway by name, the gateway's alias of a model, the kind, and optional prices, wait and daily
+//! caps) and its policy (`[route_policy]`: the route of a run that names none and the route of a delegation's classify
+//! calls).
 //! A lone `[gateway]` table is the gateway `default`.
 //!
 //! [`RouteTable::declare`] checks the tables and reads nothing; [`RouteTable::read_tokens`] reads the token files
@@ -41,7 +42,7 @@ const WAIT_SLACK: Duration = Duration::from_millis(250);
 const TOKEN_LIMIT: usize = sdc_tools::gateway::TOKEN_LIMIT;
 
 const GATEWAY_MEMBERS: [&str; 2] = ["base_url", "token_file"];
-const ROUTE_MEMBERS: [&str; 10] = ["gateway", "model", "kind", "start_wait_seconds", "price_in_micro_usd_per_mtok", "price_out_micro_usd_per_mtok", "wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd", "price_per_hour_micro_usd"];
+const ROUTE_MEMBERS: [&str; 12] = ["gateway", "model", "kind", "start_wait_seconds", "price_in_micro_usd_per_mtok", "price_out_micro_usd_per_mtok", "daily_cap_micro_usd", "daily_max_llm_calls", "wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd", "price_per_hour_micro_usd"];
 /// The keys of a managed route only: its wake and its pod's price, both booked against its daily cap.
 const WAKE_MEMBERS: [&str; 4] = ["wake_on_submit", "wake_daily_cap_micro_usd", "wake_cost_micro_usd", "price_per_hour_micro_usd"];
 const POLICY_MEMBERS: [&str; 2] = ["default", "classifier"];
@@ -102,6 +103,15 @@ pub struct Wake {
     pub price_per_hour_micro_usd: Option<u64>,
 }
 
+/// The daily caps of a route of any kind (`docs/model-routes.md`, section 5; story `any-route-kind-takes-a-daily-cap`):
+/// the most the relay may book on it per day of the daemon's clock (`daily_cap_micro_usd`, only on a route that declares
+/// a price) and the most calls it may send there (`daily_max_llm_calls`). None: no cap of that figure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Daily {
+    pub micro_usd: Option<u64>,
+    pub llm_calls: Option<u64>,
+}
+
 /// A gateway: an address and, once [`RouteTable::read_tokens`] ran, the token of its token file. The token is
 /// read through [`Gateway::token`]; neither it nor the address is in `Debug`.
 #[derive(Clone, PartialEq, Eq)]
@@ -153,6 +163,7 @@ pub struct Route {
     pub start_wait_seconds: Option<u64>,
     pub prices: Prices,
     pub wake: Wake,
+    pub daily: Daily,
 }
 
 /// What a route name resolves to: the address of its gateway, the gateway's token, the alias, the kind and the
@@ -227,6 +238,14 @@ fn whole(table: &Map<String, Value>, at: &str, key: &str) -> Result<Option<u64>,
     match table.get(key) {
         None => Ok(None),
         Some(v) => v.as_u64().map(Some).ok_or_else(|| format!("{at}.{key}: a whole number of 0 or more")),
+    }
+}
+
+/// A cap of `key`: absent, or a whole number above 0 (a cap of 0 would refuse every call: leave the key out instead).
+fn above_zero(table: &Map<String, Value>, at: &str, key: &str) -> Result<Option<u64>, String> {
+    match table.get(key) {
+        None => Ok(None),
+        Some(v) => v.as_u64().filter(|n| *n > 0).map(Some).ok_or_else(|| format!("{at}.{key}: a whole number above 0")),
     }
 }
 
@@ -321,14 +340,26 @@ fn route_of(name: &str, table: &Map<String, Value>, gateways: &BTreeMap<String, 
             return Err(format!("{at}.wake_cost_micro_usd: {cost} is above {at}.wake_daily_cap_micro_usd {cap}: no wake would ever be sent (docs/model-routes.md section 3)"));
         }
     }
+    let start_wait_seconds = whole(table, &at, "start_wait_seconds")?;
+    let prices = Prices { in_micro_usd_per_mtok: whole(table, &at, "price_in_micro_usd_per_mtok")?, out_micro_usd_per_mtok: whole(table, &at, "price_out_micro_usd_per_mtok")? };
+    let daily = Daily { micro_usd: above_zero(table, &at, crate::route_day::DAILY_CAP)?, llm_calls: above_zero(table, &at, crate::route_day::DAILY_CALLS)? };
+    // a route with no price books a call's reservation, not its cost: its calls are capped by their count
+    if daily.micro_usd.is_some() && prices.in_micro_usd_per_mtok.is_none() && prices.out_micro_usd_per_mtok.is_none() {
+        return Err(format!(
+            "{at}.{}: the route declares no price (price_in_micro_usd_per_mtok, price_out_micro_usd_per_mtok), so the cost of its calls is not known: cap its calls with {at}.{} (docs/model-routes.md section 5)",
+            crate::route_day::DAILY_CAP,
+            crate::route_day::DAILY_CALLS
+        ));
+    }
     Ok(Route {
         name: name.to_owned(),
         gateway,
         alias,
         kind,
-        start_wait_seconds: whole(table, &at, "start_wait_seconds")?,
-        prices: Prices { in_micro_usd_per_mtok: whole(table, &at, "price_in_micro_usd_per_mtok")?, out_micro_usd_per_mtok: whole(table, &at, "price_out_micro_usd_per_mtok")? },
+        start_wait_seconds,
+        prices,
         wake,
+        daily,
     })
 }
 
@@ -428,6 +459,7 @@ impl RouteTable {
             start_wait_seconds: None,
             prices: Prices::default(),
             wake: Wake::default(),
+            daily: Daily::default(),
         };
         self.routes.insert(DEFAULT_GATEWAY.to_owned(), route);
         self.default = Some(DEFAULT_GATEWAY.to_owned());

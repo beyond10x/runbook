@@ -212,6 +212,11 @@ impl Ledger {
     pub fn spent(&self) -> Result<u64, String> {
         self.with_state(|s| Ok(s.spent))
     }
+
+    /// Under the lock: every entry of the ledger, in the order they were booked.
+    pub fn entries(&self) -> Result<Vec<Value>, String> {
+        self.with_state(|s| Ok(s.entries.clone()))
+    }
 }
 
 fn lock(file: &File) -> Result<(), String> {

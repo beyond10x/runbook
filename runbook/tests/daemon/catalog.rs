@@ -128,8 +128,8 @@ fn the_catalog_of_a_daemon_with_two_routes_and_two_runbooks_lists_both_of_each_w
     assert_eq!(
         routes,
         vec![
-            json!({"route": "claude", "gateway": "default", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "listed", "max_model_len": 200000, "tool_calling": true, "price_in_micro_usd_per_mtok": 3000000, "price_out_micro_usd_per_mtok": 15000000}),
-            json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped", "max_model_len": 32768, "price_in_micro_usd_per_mtok": 0, "price_out_micro_usd_per_mtok": 0, "start_wait_seconds": 600}),
+            json!({"route": "claude", "gateway": "default", "alias": "claude", "kind": "hosted", "wires": ["messages"], "status": "listed", "max_model_len": 200000, "tool_calling": true, "price_in_micro_usd_per_mtok": 3000000, "price_out_micro_usd_per_mtok": 15000000, "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
+            json!({"route": "qwen", "gateway": "default", "alias": "qwen", "kind": "managed", "wires": ["chat", "responses"], "status": "not-ready", "phase": "stopped", "max_model_len": 32768, "price_in_micro_usd_per_mtok": 0, "price_out_micro_usd_per_mtok": 0, "start_wait_seconds": 600, "daily_booked_micro_usd": 0, "daily_llm_calls": 0}),
         ]
     );
 

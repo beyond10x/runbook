@@ -75,3 +75,4 @@ mod adversary_w6;
 mod adversary_late_call;
 mod adversary_wake_booking;
 mod adversary_route_figures;
+mod route_day_cap;
