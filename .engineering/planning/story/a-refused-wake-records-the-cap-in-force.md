@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:a-refused-wake-records-the-cap-in-force
 kind: story
-status: draft
+status: active
 title: A wake refused for the wake cap answers the cap in force at the refusal
 summary: The refused runbook.route-wake documents cap_micro_usd, and the routes row answers the day's newest cap refusal and its cap
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:the-routes-row-says-whether-a-new-run-would-join-a-wake
 kind: story
-status: draft
+status: active
 title: The routes row says whether a run submitted now would join a wake in flight
 summary: wake_joinable, with the joined wake's instant and the end of its join, from the daemon's own join rule; wake_needed keeps its meaning
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-28T03:31:06Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-28T03:31:06Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:the-routes-row-says-how-the-newest-wake-was-answered
 kind: story
-status: draft
+status: active
 title: The routes row says how the newest wake of a route was answered, and when
 summary: wake_last_answer (2xx, 4xx, 5xx, spend-ceiling, no answer, none yet) and wake_last_answered_at in the views routes and catalog
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 

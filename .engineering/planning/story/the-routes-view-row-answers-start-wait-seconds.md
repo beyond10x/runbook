@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:the-routes-view-row-answers-start-wait-seconds
 kind: story
-status: draft
+status: active
 title: The routes view row answers start_wait_seconds, as the catalog's route does
 summary: start_wait_seconds on the row of the view routes and of list_routes when declared; the catalog takes it from the row
 tags:
 - consumer-asks-2026-11-28-pin-0-15
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
-revision: 1
+revision: 3
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
