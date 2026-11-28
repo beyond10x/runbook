@@ -184,13 +184,14 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.15.0`; nothing is published to crates.io. The latest is 0.15.0 (2026-11-28).
+`0.16.0`; nothing is published to crates.io. The latest is 0.16.0 (2026-11-28).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- Unreleased since 0.15.0 (`CHANGELOG.md`, [Unreleased]): the row of the view `routes` answers the route's
+- New in 0.16.0 over 0.15.0 (nothing is unreleased): the row of the view `routes` answers the route's
   `start_wait_seconds`, how and when its newest wake was answered, the day's newest refusal for the wake cap with the
-  cap in force, and whether a run that wakes the route now would join a wake in flight.
+  cap in force, and whether a run that wakes the route now would join a wake in flight. No change is breaking. No
+  evaluation run was made on this code ([docs/releases/0.16.0.md](docs/releases/0.16.0.md)).
 - New in 0.15.0 over 0.14.0: a delegation can change a repository the operator lists in
   `runbook.toml` on its own branch, a first slice at `--confinement local` only; a route of any kind takes a daily spend
   or call cap, and the view `routes` answers each route's figures of the day; a wake of a managed route is booked only
