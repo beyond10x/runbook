@@ -10,7 +10,7 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-28T03:31:06Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-28T03:31:06Z", actor: "agent:runbook", revision: 3}
@@ -89,9 +89,14 @@ this story), a managed route with the wake on and `start_wait_seconds = 600`:
 
 - The members keep the story's names. `wake_joinable` is false when the route's wake is off (`wake_on_submit` not
   true), also when the journal holds a wake within the wait from a daemon that had it on: with the wake off no run wakes
-  the route, so none joins. The row carries no `wake_on_submit`; whether a run submitted now wakes the route at all
-  turns on the row's phase being `stopped`.
-- `wake_joinable_until` is the wake's `at` plus the route's `start_wait_seconds`; a run joins before that instant, not
-  at it (the rule's `now - at < wait`). With no `start_wait_seconds` the wait is 0 and no wake is joinable.
+  the route, so none joins. The row carries no `wake_on_submit`; whether a run wakes the route at all turns on the
+  row's phase being `stopped`.
+- The join is decided when a run wakes the route, not at its submit (decision D19 of the unit's coordinator: joining
+  at submit would let a run that starts much later join a stale wake). `wake_joinable` says whether a run that wakes
+  the route now would join; `wake_joinable_until` is the wake's `at` plus the route's `start_wait_seconds`, and a run
+  that wakes the route before that instant joins the wake, one that wakes it at or after it sends its own (the rule's
+  `now - at < wait`). A run behind a serial key wakes the route only once it holds the key, so one submitted inside
+  the window joins only if it gets the key before `wake_joinable_until`. With no `start_wait_seconds` the wait is 0
+  and no wake is joinable.
 - The rule is one function, `joinable_wake` over the walk `sent_wakes`; `wake_sent_within` (what the wake reads) and
   the view call it, so they never differ.

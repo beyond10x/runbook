@@ -333,7 +333,7 @@ At submit, after the route is resolved and before anything is written:
    A wake refused for the cap records the cap in force (`cap_micro_usd` of its `runbook.route-wake`), and the row
    answers the day's newest such refusal and its cap (`wake_cap_refused_at`, `wake_cap_refused_cap_micro_usd`) beside
    the cap read at start (`wake_cap_micro_usd`), so a refusal under a cap since raised is told from one that holds.
-   Whether a run submitted now would join a wake in flight is `wake_joinable`, with `wake_joinable_sent_at` and
+   Whether a run that wakes the route now would join a wake in flight is `wake_joinable`, with `wake_joinable_sent_at` and
    `wake_joinable_until` (that instant plus `start_wait_seconds`), from the join rule the wake applies
    (`wake_sent_within`); every row answers the route's `start_wait_seconds` when declared. Built: stories
    `the-routes-row-says-how-the-newest-wake-was-answered`, `a-refused-wake-records-the-cap-in-force`,

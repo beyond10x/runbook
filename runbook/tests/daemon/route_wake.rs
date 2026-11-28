@@ -1200,6 +1200,24 @@ fn the_row_answers_2xx_and_the_instant_of_the_answer_to_the_newest_wake() {
     gw.no_call();
 }
 
+/// The answer's instant is not the send's: a wake sent at 10:00:00 that the stand-in answers 202 at 10:00:02 of the test
+/// clock answers `wake_last_answered_at` 10:00:02, the `at` of its `runbook.route-wake-answered`, beside
+/// `wake_last_sent_at` 10:00:00.
+#[test]
+fn the_answers_instant_is_that_of_the_answer_not_of_the_send() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Held(202, json!({"model": "qwen", "phase": "starting"}))], (202, json!({})));
+    let (d, clock) = daemon("answer-later", &gw, wake_on(500, 100));
+    let run = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    clock.set("2026-11-26T10:00:02Z");
+    gw.let_go(1);
+    until_records(&d, &run, "runbook.route-wake-answered");
+    assert_eq!(ats(&d, &run, "runbook.route-wake-answered"), vec!["2026-11-26T10:00:02.000Z".to_owned()]);
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("2xx", Some("2026-11-26T10:00:02.000Z")));
+    assert_eq!(route_row(&d, "qwen")["wake_last_sent_at"], "2026-11-26T10:00:00.000Z");
+    gw.no_call();
+}
+
 /// A wake answered `spend-ceiling`, then on the next day of the test clock a wake answered 404: the row answers `4xx`
 /// with the second answer's instant, not the ceiling; a later wake answered 503 answers `5xx`.
 #[test]

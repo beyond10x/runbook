@@ -42,7 +42,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:69f5ad6b8b94225bb10ce218b20821f4afbd59955fa0fdc9675cce17d543715a",
+    "contract_digest": "slice-sha256/2:776410a381c59cc26be9e65c8290de55fdebd07b7be8de6cb793a236164482ee",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -136,7 +136,7 @@
           "type": "boolean"
         },
         "wake_joinable": {
-          "description": "As in the view Routes: a run submitted now that wakes the route would join a wake in flight.",
+          "description": "As in the view Routes: a run that wakes the route now would join a wake in flight.",
           "type": "boolean"
         },
         "wake_joinable_sent_at": {

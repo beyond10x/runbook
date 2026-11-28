@@ -78,7 +78,7 @@
       "type": "boolean"
     },
     "wake_joinable": {
-      "description": "True when the route's wake is on (wake_on_submit) and a run submitted now that wakes the route would join a wake in flight and send and book none, by the rule the wake itself applies: the newest sent wake of the route less than the route's start_wait_seconds old that may still start the model (answered 2xx or `spend-ceiling`, or answered 5xx, not answered in time or not answered yet while its run lives). False otherwise, also with the wake off. It does not say whether a run submitted now wakes the route at all: that turns on the phase of this row being `stopped`. wake_needed says something else: a run waits now and no wake is sent for it. Present with wake_cap_micro_usd.",
+      "description": "True when the route's wake is on (wake_on_submit) and a run that wakes the route now would join a wake in flight and send and book none, by the rule the wake itself applies at the instant a run wakes the route: the newest sent wake of the route less than the route's start_wait_seconds old that may still start the model (answered 2xx or `spend-ceiling`, or answered 5xx, not answered in time or not answered yet while its run lives). False otherwise, also with the wake off. It does not say whether or when a run wakes the route: a run wakes it when its route reads `stopped`, and a run behind a serial key only once it holds the key, so a run submitted now may wake the route later than now. wake_needed says something else: a run waits now and no wake is sent for it. Present with wake_cap_micro_usd.",
       "type": "boolean"
     },
     "wake_joinable_sent_at": {
@@ -87,7 +87,7 @@
       "format": "date-time"
     },
     "wake_joinable_until": {
-      "description": "wake_joinable_sent_at plus the route's start_wait_seconds: a run submitted before this instant joins the wake; it may stop being joinable sooner (a 4xx answer, its run ending without a 2xx). Present while wake_joinable is true.",
+      "description": "wake_joinable_sent_at plus the route's start_wait_seconds: a run that wakes the route before this instant joins the wake, one that wakes it at or after this instant sends its own. The join is decided when a run wakes the route, not at its submit: a run behind a serial key wakes the route only once it holds the key. It may stop being joinable sooner (a 4xx answer, its run ending without a 2xx). Present while wake_joinable is true.",
       "type": "string",
       "format": "date-time"
     },
@@ -148,7 +148,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:e1f04bd9523052f7445463ab8af5598dd4e7082f59d0f8a7be0c37aabfd4cbda",
+    "contract_digest": "slice-sha256/2:b66311c84c960f0dacdcb24ca5eb2ca4665b7a84213d8ffd53ca25daeefe9f47",
     "regenerate": "ess generate"
   },
   "$defs": {

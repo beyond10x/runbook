@@ -190,7 +190,7 @@ A prototype. No interface is stable. Releases are source releases at bare-versio
   [docs/releasing.md](docs/releasing.md).
 - Unreleased since 0.15.0 (`CHANGELOG.md`, [Unreleased]): the row of the view `routes` answers the route's
   `start_wait_seconds`, how and when its newest wake was answered, the day's newest refusal for the wake cap with the
-  cap in force, and whether a run submitted now would join a wake in flight.
+  cap in force, and whether a run that wakes the route now would join a wake in flight.
 - New in 0.15.0 over 0.14.0: a delegation can change a repository the operator lists in
   `runbook.toml` on its own branch, a first slice at `--confinement local` only; a route of any kind takes a daily spend
   or call cap, and the view `routes` answers each route's figures of the day; a wake of a managed route is booked only

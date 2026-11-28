@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:31b295e89ea864c6bae0b4437b23fbfccaf31ea3649bf324ac6db71c4defc0b9
+# contract digest slice-sha256/2:927c95cf67654ef176bd74ba8c1983dfedbff0188620ffb5bc38d93e23e69138
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:31b295e89ea864c6bae0b4437b23fbfccaf31ea3649bf324ac6db71c4defc0b9
+    contract_digest: slice-sha256/2:927c95cf67654ef176bd74ba8c1983dfedbff0188620ffb5bc38d93e23e69138
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -751,7 +751,7 @@ paths:
     get:
       operationId: sdc.daemon.Routes
       summary: Model routes
-      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them, and the route''s start_wait_seconds when the daemon''s file declares it. A managed route''s row also answers what its wake cap counts on the day of the daemon''s clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent and how and when it was answered (wake_last_sent_at, wake_last_answer, wake_last_answered_at), the day''s last spend-ceiling answer (ceiling_refused_at), the day''s last wake refused for the wake cap and the cap that refused it (wake_cap_refused_at, wake_cap_refused_cap_micro_usd), whether a waiting run needs a wake the daemon does not send (wake_needed) and whether a run submitted now would join a wake in flight, which and until when (wake_joinable, wake_joinable_sent_at, wake_joinable_until), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. Every row answers what the relay booked (daily_booked_micro_usd) and sent (daily_llm_calls) on the route that day, and the route''s daily caps where it declares them (daily_cap_micro_usd, daily_max_llm_calls), read from the figures the relay holds a call against. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
+      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them, and the route''s start_wait_seconds when the daemon''s file declares it. A managed route''s row also answers what its wake cap counts on the day of the daemon''s clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent and how and when it was answered (wake_last_sent_at, wake_last_answer, wake_last_answered_at), the day''s last spend-ceiling answer (ceiling_refused_at), the day''s last wake refused for the wake cap and the cap that refused it (wake_cap_refused_at, wake_cap_refused_cap_micro_usd), whether a waiting run needs a wake the daemon does not send (wake_needed) and whether a run that wakes the route now would join a wake in flight, which and until when (wake_joinable, wake_joinable_sent_at, wake_joinable_until), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. Every row answers what the relay booked (daily_booked_micro_usd) and sent (daily_llm_calls) on the route that day, and the route''s daily caps where it declares them (daily_cap_micro_usd, daily_max_llm_calls), read from the figures the relay holds a call against. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
       tags:
       - daemon
       x-ess-consistency: read_your_writes
@@ -1471,7 +1471,7 @@ components:
           description: 'As in the view Routes: a run waits on the route and the daemon sends no wake for it.'
           type: boolean
         wake_joinable:
-          description: 'As in the view Routes: a run submitted now that wakes the route would join a wake in flight.'
+          description: 'As in the view Routes: a run that wakes the route now would join a wake in flight.'
           type: boolean
         wake_joinable_sent_at:
           description: 'As in the view Routes: the instant of the wake a run would join.'
@@ -3080,7 +3080,7 @@ components:
       type: object
     sdc.daemon.Routes.Row:
       title: Model routes row
-      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them, and the route''s start_wait_seconds when the daemon''s file declares it. A managed route''s row also answers what its wake cap counts on the day of the daemon''s clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent and how and when it was answered (wake_last_sent_at, wake_last_answer, wake_last_answered_at), the day''s last spend-ceiling answer (ceiling_refused_at), the day''s last wake refused for the wake cap and the cap that refused it (wake_cap_refused_at, wake_cap_refused_cap_micro_usd), whether a waiting run needs a wake the daemon does not send (wake_needed) and whether a run submitted now would join a wake in flight, which and until when (wake_joinable, wake_joinable_sent_at, wake_joinable_until), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. Every row answers what the relay booked (daily_booked_micro_usd) and sent (daily_llm_calls) on the route that day, and the route''s daily caps where it declares them (daily_cap_micro_usd, daily_max_llm_calls), read from the figures the relay holds a call against. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
+      description: 'The model routes the daemon declares, in order of name: GET /daemon/views/routes (the MCP tool list_routes). Each row names the route, its gateway by name, the alias, the kind, the wires and the status the daemon last read from the gateway (`GET /ready`, `GET /v1/models`, and for the status `GET /v1/status`, else `GET /v1/models/{alias}/status` for a managed or a local route), read at most once every 15 seconds, and the context length (max_model_len) and the tool calling (tool_calling) `GET /v1/models` gives for the alias when it gives them, and the route''s start_wait_seconds when the daemon''s file declares it. A managed route''s row also answers what its wake cap counts on the day of the daemon''s clock (wake_booked_micro_usd, wake_cap_micro_usd, wake_cost_micro_usd, pod_booked_micro_usd), the last wake sent and how and when it was answered (wake_last_sent_at, wake_last_answer, wake_last_answered_at), the day''s last spend-ceiling answer (ceiling_refused_at), the day''s last wake refused for the wake cap and the cap that refused it (wake_cap_refused_at, wake_cap_refused_cap_micro_usd), whether a waiting run needs a wake the daemon does not send (wake_needed) and whether a run that wakes the route now would join a wake in flight, which and until when (wake_joinable, wake_joinable_sent_at, wake_joinable_until), read from the journal when the client asks, by what the cap of a wake reads; each is absent where it does not apply. Every row answers what the relay booked (daily_booked_micro_usd) and sent (daily_llm_calls) on the route that day, and the route''s daily caps where it declares them (daily_cap_micro_usd, daily_max_llm_calls), read from the figures the relay holds a call against. A daemon whose file declares no route has no row. No address, token, token file or price is in a row.'
       x-ess-name: sdc.daemon.Routes
       x-ess-kind: view-row
       type: object
@@ -4654,7 +4654,7 @@ x-ess-entities:
         description: 'As in the view Routes: a run waits on the route and the daemon sends no wake for it.'
         type: boolean
       wake_joinable:
-        description: 'As in the view Routes: a run submitted now that wakes the route would join a wake in flight.'
+        description: 'As in the view Routes: a run that wakes the route now would join a wake in flight.'
         type: boolean
       wake_joinable_sent_at:
         description: 'As in the view Routes: the instant of the wake a run would join.'
@@ -5255,14 +5255,14 @@ x-ess-entities:
         description: 'True when the route''s wake is on (wake_on_submit), the phase of this row is `stopped`, a run that takes the route (or a delegation the daemon classifies, on the classifier route) is WaitingForRoute, no wake of the route is out (sent, not answered yet, its run live, also past the wait) and none may be joined (one within the route''s start_wait_seconds that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day''s cap, was answered 4xx, or the wake the run joined is past its wait. False otherwise. Present with wake_cap_micro_usd.'
         type: boolean
       wake_joinable:
-        description: 'True when the route''s wake is on (wake_on_submit) and a run submitted now that wakes the route would join a wake in flight and send and book none, by the rule the wake itself applies: the newest sent wake of the route less than the route''s start_wait_seconds old that may still start the model (answered 2xx or `spend-ceiling`, or answered 5xx, not answered in time or not answered yet while its run lives). False otherwise, also with the wake off. It does not say whether a run submitted now wakes the route at all: that turns on the phase of this row being `stopped`. wake_needed says something else: a run waits now and no wake is sent for it. Present with wake_cap_micro_usd.'
+        description: 'True when the route''s wake is on (wake_on_submit) and a run that wakes the route now would join a wake in flight and send and book none, by the rule the wake itself applies at the instant a run wakes the route: the newest sent wake of the route less than the route''s start_wait_seconds old that may still start the model (answered 2xx or `spend-ceiling`, or answered 5xx, not answered in time or not answered yet while its run lives). False otherwise, also with the wake off. It does not say whether or when a run wakes the route: a run wakes it when its route reads `stopped`, and a run behind a serial key only once it holds the key, so a run submitted now may wake the route later than now. wake_needed says something else: a run waits now and no wake is sent for it. Present with wake_cap_micro_usd.'
         type: boolean
       wake_joinable_sent_at:
         description: 'The instant of the wake a run would join: the `at` of its run event `runbook.route-wake`, the `joined_at` a joining run records. Present while wake_joinable is true.'
         type: string
         format: date-time
       wake_joinable_until:
-        description: 'wake_joinable_sent_at plus the route''s start_wait_seconds: a run submitted before this instant joins the wake; it may stop being joinable sooner (a 4xx answer, its run ending without a 2xx). Present while wake_joinable is true.'
+        description: 'wake_joinable_sent_at plus the route''s start_wait_seconds: a run that wakes the route before this instant joins the wake, one that wakes it at or after this instant sends its own. The join is decided when a run wakes the route, not at its submit: a run behind a serial key wakes the route only once it holds the key. It may stop being joinable sooner (a 4xx answer, its run ending without a 2xx). Present while wake_joinable is true.'
         type: string
         format: date-time
       ceiling_refused_at:
