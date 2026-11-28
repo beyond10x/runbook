@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:the-routes-row-says-how-the-newest-wake-was-answered
 kind: story
-status: draft
+status: active
 title: The routes row says how the newest wake of a route was answered, and when
 summary: wake_last_answer (2xx, 4xx, 5xx, spend-ceiling, no answer, none yet) and wake_last_answered_at in the views routes and catalog
 tags:
@@ -10,7 +10,10 @@ tags:
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
 - informed_by: story:route-wake-behind-a-daily-cap
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
@@ -89,3 +92,14 @@ this story):
 - One change of the row with `story:a-refused-wake-records-the-cap-in-force` and
   `story:the-routes-row-says-whether-a-new-run-would-join-a-wake`: all three add members to `wake_figures` and to the
   same three ESS types. They stay three stories; built together or one after another, they touch the same lines.
+
+## Choices taken
+
+- The members keep the story's names and words. A status class other than `2xx`, `4xx` and `5xx` answers its own word
+  (`1xx`, `3xx`): one word per class, so a new class adds a word and changes none.
+- `none-yet` covers every wake this daemon still waits on: its run lives, or its run was closed (cancelled) while the
+  run's thread, which writes the answer as the daemon's line `route.wake-answered`, has not returned
+  (`State::is_taken_up`). `lost` is a wake with no answer that nothing in this process will answer: the daemon went
+  away while it was out. Without that rule a run cancelled with its wake out read `lost` for up to 5 s and then a class.
+- Both members are optional and absent where `wake_last_sent_at` is; `wake_last_answered_at` is absent for `none-yet`
+  and `lost`.

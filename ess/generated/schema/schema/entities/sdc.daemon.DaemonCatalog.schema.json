@@ -42,7 +42,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ca3245b8952a7ad387db7906b733d483a6ba10ac7e3ffc88b8322a2846ac9076",
+    "contract_digest": "slice-sha256/2:776410a381c59cc26be9e65c8290de55fdebd07b7be8de6cb793a236164482ee",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -102,7 +102,7 @@
           "type": "integer"
         },
         "start_wait_seconds": {
-          "description": "How long a run waits for the route's model to be ready; absent when the file sets none.",
+          "description": "As in the view Routes, which it is taken from: how long a run waits for the route's model to be ready; absent when the file sets none.",
           "type": "integer"
         },
         "wake_booked_micro_usd": {
@@ -122,14 +122,46 @@
           "type": "string",
           "format": "date-time"
         },
+        "wake_last_answer": {
+          "description": "As in the view Routes: how the newest wake sent for the route was answered (1xx to 5xx, spend-ceiling, no-answer, none-yet, lost).",
+          "type": "string"
+        },
+        "wake_last_answered_at": {
+          "description": "As in the view Routes: the instant of that answer.",
+          "type": "string",
+          "format": "date-time"
+        },
         "wake_needed": {
           "description": "As in the view Routes: a run waits on the route and the daemon sends no wake for it.",
           "type": "boolean"
+        },
+        "wake_joinable": {
+          "description": "As in the view Routes: a run that wakes the route now would join a wake in flight.",
+          "type": "boolean"
+        },
+        "wake_joinable_sent_at": {
+          "description": "As in the view Routes: the instant of the wake a run would join.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "wake_joinable_until": {
+          "description": "As in the view Routes: that instant plus the route's start_wait_seconds.",
+          "type": "string",
+          "format": "date-time"
         },
         "ceiling_refused_at": {
           "description": "As in the view Routes: the instant of the day's newest spend-ceiling answer to a wake of the route.",
           "type": "string",
           "format": "date-time"
+        },
+        "wake_cap_refused_at": {
+          "description": "As in the view Routes: the instant of the day's newest wake of the route refused for the wake cap.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "wake_cap_refused_cap_micro_usd": {
+          "description": "As in the view Routes: the cap in force at that refusal.",
+          "type": "integer"
         },
         "pod_booked_micro_usd": {
           "description": "As in the view Routes: what the pod's time of the route booked on the day of the daemon's clock.",

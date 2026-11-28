@@ -749,7 +749,8 @@ fn read(table: &RouteTable, now_millis: i64, until: Instant) -> Vec<Value> {
     rows_of(table, &reads, now_millis)
 }
 
-/// The rows of `table` from what its gateways said; a gateway that is not in `reads` gave no answer.
+/// The rows of `table` from what its gateways said, each with its route's `start_wait_seconds` when the file declares it; a
+/// gateway that is not in `reads` gave no answer.
 fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -> Vec<Value> {
     let read_at = crate::clock::format_instant(now_millis);
     table
@@ -788,6 +789,10 @@ fn rows_of(table: &RouteTable, reads: &BTreeMap<&str, Reach>, now_millis: i64) -
             }
             if let Some(tools) = listed.tool_calling {
                 row.insert("tool_calling".into(), json!(tools));
+            }
+            // the file's wait, for a route of any kind: it bounds a run's wait and the join of a wake
+            if let Some(seconds) = route.start_wait_seconds {
+                row.insert("start_wait_seconds".into(), json!(seconds));
             }
             row.insert("read_at".into(), json!(read_at));
             Value::Object(row)

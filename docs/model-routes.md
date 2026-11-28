@@ -327,6 +327,17 @@ At submit, after the route is resolved and before anything is written:
    while a run waits on the route read `stopped` and no wake of the route is out or may be joined (the run's wake
    passed the cap, was answered `4xx`, or the wake it joined is past its wait). Built: `docs/daemon-api.md`, "The
    day's figures of a route".
+   The row also answers how the newest wake was answered and when (`wake_last_answer`: `2xx`, `4xx`, `5xx`,
+   `spend-ceiling`, `no-answer`, `none-yet` or `lost`; `wake_last_answered_at`), read from the walk the cap shares
+   (`sent_wakes`): the newest wake's answer, not a send after `ceiling_refused_at`, is what ends a ceiling for a client.
+   A wake refused for the cap records the cap in force (`cap_micro_usd` of its `runbook.route-wake`), and the row
+   answers the day's newest such refusal and its cap (`wake_cap_refused_at`, `wake_cap_refused_cap_micro_usd`) beside
+   the cap read at start (`wake_cap_micro_usd`), so a refusal under a cap since raised is told from one that holds.
+   Whether a run that wakes the route now would join a wake in flight is `wake_joinable`, with `wake_joinable_sent_at` and
+   `wake_joinable_until` (that instant plus `start_wait_seconds`), from the join rule the wake applies
+   (`wake_sent_within`); every row answers the route's `start_wait_seconds` when declared. Built: stories
+   `the-routes-row-says-how-the-newest-wake-was-answered`, `a-refused-wake-records-the-cap-in-force`,
+   `the-routes-row-says-whether-a-new-run-would-join-a-wake`, `the-routes-view-row-answers-start-wait-seconds`.
    The shipped
    default is off; the pod is started by a person until the operator sets the cap. Built: `docs/daemon-api.md`, "The wake of a managed route".
 5. For a `hosted` route the daemon sends no model call to probe it (a probe would spend). The run starts; a failing

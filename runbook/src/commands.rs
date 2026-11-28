@@ -902,6 +902,8 @@ struct SentWake<'a> {
     /// `route.wake-answered` of that run and route. None while the wake is out, and for a wake whose daemon went away
     /// before its answer came.
     answer: Option<&'a Value>,
+    /// The `at` of that answer: of the run event, or of the daemon's line. None while `answer` is.
+    answered_at: Option<&'a str>,
 }
 
 /// The sent wakes of `route` of every run, in the order of the journal, each with its answer: a walk of the route's wake
@@ -913,20 +915,41 @@ fn sent_wakes<'a>(st: &'a State, route: &str) -> Vec<SentWake<'a>> {
     for e in st.wake_events_of(route) {
         if e.kind == ROUTE_WAKE && e.record["sent"] == true {
             out.entry(e.run_id.as_str()).or_default().push_back(wakes.len());
-            wakes.push(SentWake { run_id: &e.run_id, at: &e.at, record: &e.record, answer: None });
+            wakes.push(SentWake { run_id: &e.run_id, at: &e.at, record: &e.record, answer: None, answered_at: None });
         } else if e.kind == ROUTE_WAKE_ANSWERED {
             if let Some(i) = out.get_mut(e.run_id.as_str()).and_then(std::collections::VecDeque::pop_front) {
-                wakes[i].answer = Some(&e.record);
+                (wakes[i].answer, wakes[i].answered_at) = (Some(&e.record), Some(e.at.as_str()));
             }
         }
     }
     // an answer that came after its run was closed: the run sends no wake after it, so it answers the run's wake still out
     for a in st.wake_answers().iter().filter(|a| a.record["route"] == route) {
         if let Some(i) = out.get_mut(a.run_id.as_str()).and_then(std::collections::VecDeque::pop_front) {
-            wakes[i].answer = Some(&a.record);
+            (wakes[i].answer, wakes[i].answered_at) = (Some(&a.record), Some(a.at.as_str()));
         }
     }
     wakes
+}
+
+/// How the sent wake `w` was answered, one word per case (the member `wake_last_answer` of the view `routes`): the class of
+/// the gateway's status (`2xx`, `4xx`, `5xx`; `1xx` and `3xx` alike), `spend-ceiling` (the gateway's code, whatever the
+/// status), `no-answer` (the status null: no answer within the daemon's bound), `none-yet` (no answer yet while the wake is
+/// in flight: its run lives, or this process still runs the run's thread, which writes the answer of a run closed while
+/// its wake was out), or `lost` (no answer, and nothing in this process will write one: the daemon went away while it was
+/// out).
+fn answer_word(st: &State, w: &SentWake) -> String {
+    match w.answer {
+        Some(a) if a["code"] == crate::routes::SPEND_CEILING => crate::routes::SPEND_CEILING.to_owned(),
+        Some(a) => a["status"].as_u64().map_or_else(|| "no-answer".to_owned(), |s| format!("{}xx", s / 100)),
+        None if run_lives(st, w.run_id) || st.is_taken_up(w.run_id) => "none-yet".to_owned(),
+        None => "lost".to_owned(),
+    }
+}
+
+/// The newest run event `runbook.route-wake` of `route` that was not sent for the wake cap (reason `wake cap reached`) on
+/// `day`, the day its record counted on: its record holds `cap_micro_usd`, the cap in force when it was refused.
+fn cap_refused<'a>(st: &'a State, route: &str, day: &str) -> Option<&'a RunEvent> {
+    st.wake_events_of(route).filter(|e| e.kind == ROUTE_WAKE && e.record["sent"] == false && e.record["reason"] == WAKE_CAP_REACHED && e.record["day"] == day).last()
 }
 
 /// Whether the run `run_id` is live.
@@ -941,15 +964,21 @@ fn run_lives(st: &State, run_id: &str) -> bool {
 /// ends the run that joins it. A wake answered otherwise (a 4xx), or whose run ended without a 2xx (also one whose
 /// daemon went away before its answer came: nothing says the gateway took it), is not joined.
 fn wake_sent_within(st: &State, route: &str, now_millis: i64, wait_millis: i64) -> Option<(String, String)> {
-    sent_wakes(st, route).into_iter().rev().find_map(|w| {
-        let at = crate::clock::parse_instant(w.at)?;
+    joinable_wake(st, &sent_wakes(st, route), now_millis, wait_millis).map(|w| (w.run_id.to_owned(), w.at.to_owned()))
+}
+
+/// The rule of [`wake_sent_within`] over the walk `wakes` of the route ([`sent_wakes`]): the wake a run would join. The view
+/// `routes` reads it too (`wake_joinable`, [`wake_figures`]), so the view and the wake never differ.
+fn joinable_wake<'w, 'a>(st: &State, wakes: &'w [SentWake<'a>], now_millis: i64, wait_millis: i64) -> Option<&'w SentWake<'a>> {
+    wakes.iter().rev().find(|w| {
+        let Some(at) = crate::clock::parse_instant(w.at) else { return false };
         let within = at <= now_millis && now_millis - at < wait_millis;
         let joinable = match w.answer {
             Some(a) if wake_taken(a) || a["code"] == crate::routes::SPEND_CEILING => true,
             Some(a) => a["status"].as_u64().is_none_or(|s| s >= 500) && run_lives(st, w.run_id),
             None => run_lives(st, w.run_id),
         };
-        (within && joinable).then(|| (w.run_id.to_owned(), w.at.to_owned()))
+        within && joinable
     })
 }
 
@@ -1072,6 +1101,10 @@ fn waits_on_route(routes: &crate::routes::RouteTable, run: &Run, route: &str) ->
     takes_route(run, route) || classifies
 }
 
+/// The members of a row of the view `routes` that say what the route's gateway said of it (`crate::routes`, the read), in
+/// the order a row has them: the catalog puts a route's prices after them.
+const READ_MEMBERS: [&str; 9] = ["route", "gateway", "alias", "kind", "wires", "status", "phase", "max_model_len", "tool_calling"];
+
 /// The `at` of the newest answer `spend-ceiling` to a wake of `route` on `day`: a run event `runbook.route-wake-answered`,
 /// or the daemon's line `route.wake-answered` of a run closed before the answer came.
 fn ceiling_refused_at<'a>(st: &'a State, route: &str, day: &str) -> Option<&'a str> {
@@ -1084,12 +1117,15 @@ fn ceiling_refused_at<'a>(st: &'a State, route: &str, day: &str) -> Option<&'a s
 /// The figures of the day of the daemon's clock of the route `name` for its row of the view `routes` (story
 /// `the-routes-view-answers-the-days-wake-figures`; `phase`: the phase of the row, the last read of its gateway). For a
 /// managed route that declares `wake_daily_cap_micro_usd`: `wake_booked_micro_usd`, `wake_cap_micro_usd`,
-/// `wake_cost_micro_usd`, `wake_last_sent_at`, `wake_needed` and `ceiling_refused_at`; for one that declares
+/// `wake_cost_micro_usd`, `wake_last_sent_at` with `wake_last_answer` and `wake_last_answered_at` ([`answer_word`]),
+/// `wake_needed`, `wake_joinable` with `wake_joinable_sent_at` and `wake_joinable_until`, `ceiling_refused_at`, and
+/// `wake_cap_refused_at` with `wake_cap_refused_cap_micro_usd` ([`cap_refused`]); for one that declares
 /// `price_per_hour_micro_usd`: `pod_booked_micro_usd`. Each is absent where it does not apply. The booked figures are
-/// [`day_booked`], what the cap of the next wake reads. `wake_needed`: the wake is on, the phase is `stopped`, a run
-/// waits on the route ([`waits_on_route`]), no wake of the route is out (not answered yet, its run live, also past the
-/// route's wait) and none may be joined ([`wake_sent_within`]): a run waits
-/// and the daemon sends no wake for it.
+/// [`day_booked`], what the cap of the next wake reads, and the wake members come from the one walk the cap and the wake
+/// read ([`sent_wakes`]). `wake_needed`: the wake is on, the phase is `stopped`, a run waits on the route
+/// ([`waits_on_route`]), no wake of the route is out (not answered yet, its run live, also past the route's wait) and none
+/// may be joined ([`joinable_wake`]): a run waits and the daemon sends no wake for it. `wake_joinable`: the wake is on and
+/// [`joinable_wake`], the rule [`Daemon::wake_route`] joins by, finds a wake at the daemon's clock.
 fn wake_figures(st: &State, routes: &crate::routes::RouteTable, name: &str, phase: Option<&str>) -> Map<String, Value> {
     let mut m = Map::new();
     let Some(route) = routes.route(name).filter(|r| r.kind == crate::routes::RouteKind::Managed) else { return m };
@@ -1101,17 +1137,38 @@ fn wake_figures(st: &State, routes: &crate::routes::RouteTable, name: &str, phas
         if let Some(cost) = route.wake.cost_micro_usd {
             m.insert("wake_cost_micro_usd".into(), json!(cost));
         }
-        if let Some(last) = sent_wakes(st, name).last() {
+        let sent = sent_wakes(st, name);
+        if let Some(last) = sent.last() {
             m.insert("wake_last_sent_at".into(), json!(last.at));
+            m.insert("wake_last_answer".into(), json!(answer_word(st, last)));
+            if let Some(at) = last.answered_at {
+                m.insert("wake_last_answered_at".into(), json!(at));
+            }
         }
         let waits = || st.runs().iter().any(|r| r.state == RunState::WaitingForRoute && waits_on_route(routes, r, name));
         let wait_millis = i64::try_from(route.start_wait_seconds.unwrap_or(0)).unwrap_or(i64::MAX / 2).saturating_mul(1000);
         // a wake not answered yet whose run lives is out, also past the route's wait (the daemon waits up to 5 s for an answer)
-        let out = || sent_wakes(st, name).iter().any(|w| w.answer.is_none() && run_lives(st, w.run_id));
-        let needed = route.wake.on_submit && phase == Some("stopped") && waits() && !out() && wake_sent_within(st, name, now, wait_millis).is_none();
+        let out = || sent.iter().any(|w| w.answer.is_none() && run_lives(st, w.run_id));
+        let joinable = joinable_wake(st, &sent, now, wait_millis);
+        let needed = route.wake.on_submit && phase == Some("stopped") && waits() && !out() && joinable.is_none();
         m.insert("wake_needed".into(), json!(needed));
+        // with the wake off no run wakes the route, so none joins a wake
+        let join = joinable.filter(|_| route.wake.on_submit);
+        m.insert("wake_joinable".into(), json!(join.is_some()));
+        if let Some(w) = join {
+            m.insert("wake_joinable_sent_at".into(), json!(w.at));
+            if let Some(at) = parse_instant(w.at) {
+                m.insert("wake_joinable_until".into(), json!(crate::clock::format_instant(at.saturating_add(wait_millis))));
+            }
+        }
         if let Some(at) = ceiling_refused_at(st, name, &day) {
             m.insert("ceiling_refused_at".into(), json!(at));
+        }
+        if let Some(e) = cap_refused(st, name, &day) {
+            m.insert("wake_cap_refused_at".into(), json!(e.at));
+            if let Some(cap) = e.record.get("cap_micro_usd") {
+                m.insert("wake_cap_refused_cap_micro_usd".into(), cap.clone());
+            }
         }
     }
     if let Some(pod) = pod {
@@ -2641,7 +2698,7 @@ impl Daemon {
 
     /// The view `Catalog` (wire name `catalog`, `docs/model-routes.md` section 10): one row with what a delegation may name.
     /// `routes`: the rows of the view `routes` (the gateways read at most once every [`crate::routes::READ_EVERY_MILLIS`])
-    /// with the prices and the wait of the daemon's file. `runbooks`: the rows of the view `runbooks` with what the runtime
+    /// with the prices of the daemon's file; the wait is the row's own (`start_wait_seconds`). `runbooks`: the rows of the view `runbooks` with what the runtime
     /// says of each (`Runtime::runbook_facts`) and the admission of its route entries (`crate::admission`) against those
     /// routes and the default route. `delegation`: the members of `Delegate` as the OpenAPI document gives them, the paths,
     /// the default and classifier routes, the level and the most bytes of a request. No address, token or path.
@@ -2655,15 +2712,14 @@ impl Daemon {
             .map(|mut row| {
                 let declared = row["route"].as_str().and_then(|r| table.route(r)).cloned();
                 if let (Some(route), Some(m)) = (declared, row.as_object_mut()) {
-                    let read_at = m.shift_remove("read_at");
-                    let numbers = [("price_in_micro_usd_per_mtok", route.prices.in_micro_usd_per_mtok), ("price_out_micro_usd_per_mtok", route.prices.out_micro_usd_per_mtok), ("start_wait_seconds", route.start_wait_seconds)];
-                    for (key, value) in numbers {
+                    // the prices go after what the gateway said, before the row's `start_wait_seconds` and figures
+                    let mut at = m.keys().take_while(|k| READ_MEMBERS.contains(&k.as_str())).count();
+                    let prices = [("price_in_micro_usd_per_mtok", route.prices.in_micro_usd_per_mtok), ("price_out_micro_usd_per_mtok", route.prices.out_micro_usd_per_mtok)];
+                    for (key, value) in prices {
                         if let Some(n) = value {
-                            m.insert(key.into(), json!(n));
+                            m.shift_insert(at, key.into(), json!(n));
+                            at += 1;
                         }
-                    }
-                    if let Some(at) = read_at {
-                        m.insert("read_at".into(), at);
                     }
                 }
                 row

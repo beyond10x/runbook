@@ -7,6 +7,12 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Added
+- A row of the view `routes` (and of the MCP tool `list_routes`) answers the route's `start_wait_seconds` when the daemon's file declares it, for a route of any kind; the catalog's route takes it from the row (story `the-routes-view-row-answers-start-wait-seconds`; `docs/daemon-api.md`, the view `routes` and "The catalog").
+- A managed route's row of the view `routes` (and its route of the catalog and of `list_routes`) says how the newest wake was answered and when: `wake_last_answer` (`2xx`, `4xx`, `5xx`, `spend-ceiling`, `no-answer`, `none-yet`, `lost`) and `wake_last_answered_at`; the newest wake's answer, not a send after `ceiling_refused_at`, is what ends a ceiling for a client (story `the-routes-row-says-how-the-newest-wake-was-answered`; `docs/daemon-api.md`, "The day's figures of a route").
+- A wake refused for the wake cap is documented with the cap in force at the refusal (`cap_micro_usd` of its `runbook.route-wake`, and `pod_micro_usd` where it applies), and the row answers the day's newest such refusal, `wake_cap_refused_at`, and its cap, `wake_cap_refused_cap_micro_usd`, beside the cap read at start (story `a-refused-wake-records-the-cap-in-force`; `docs/daemon-api.md`, "The wake of a managed route").
+- The row says whether a run that wakes the route now would join a wake in flight (decided when the run wakes the route, which a run behind a serial key does once it holds the key), from the join rule the wake applies: `wake_joinable`, with `wake_joinable_sent_at` and `wake_joinable_until` while it is true; `wake_needed` keeps its meaning (story `the-routes-row-says-whether-a-new-run-would-join-a-wake`; `docs/daemon-api.md`, "The day's figures of a route").
+
 ## [0.15.0] - 2026-11-28
 
 Three entries are marked breaking: a context root of `runbook serve` that does not exist is created with mode 0700, and

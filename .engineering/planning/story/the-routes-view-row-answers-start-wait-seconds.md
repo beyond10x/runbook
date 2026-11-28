@@ -2,14 +2,17 @@
 format: aep.planning-md/3
 id: story:the-routes-view-row-answers-start-wait-seconds
 kind: story
-status: draft
+status: active
 title: The routes view row answers start_wait_seconds, as the catalog's route does
 summary: start_wait_seconds on the row of the view routes and of list_routes when declared; the catalog takes it from the row
 tags:
 - consumer-asks-2026-11-28-pin-0-15
 relations:
 - informed_by: story:the-routes-view-answers-the-days-wake-figures
-revision: 1
+revision: 4
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 2}
+- {from: "proposed", to: "active", at: "2026-11-28T03:31:05Z", actor: "agent:runbook", revision: 3}
 ---
 ## Outcome
 
@@ -65,3 +68,11 @@ With the daemon's test clock and a stand-in gateway on loopback (`runbook/tests/
 - Not the same change of the row as the three other stories of these consumer asks: this one changes the gateway's
   part of the row (`rows_of` or `Daemon::routes`) and the catalog, not `wake_figures`.
   `story:the-routes-row-says-whether-a-new-run-would-join-a-wake` reads the same wait; either may land first.
+
+## Choices taken
+
+- The member is additive and optional: present on a row of `routes` only when the daemon's file declares
+  `start_wait_seconds` for the route (any kind), absent otherwise; `rows_of` adds it from the route table, so it holds
+  before and after the gateway's first read.
+- The catalog's route is the row with the two prices put after what the gateway said (after `tool_calling`), so the
+  catalog keeps the member order of `sdc.daemon.CatalogRoute` (prices, then `start_wait_seconds`, then the figures).

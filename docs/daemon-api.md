@@ -165,7 +165,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `products` | `run_id` | one row: the files the run wrote under its `work/` directory (`files`, each `path`, `size`, `modified_at`), `hidden`, `left_out` and `cut` (below) |
 | `product` | `run_id`, `path` | one row: one file of the run's `work/` directory, its text up to 1 MiB (below) |
 | `cases` | `run_id` | the case tree of the run, a row per case: `case_id`, `parent`, `name`, `protocol`, `case_state`, `outcome` (below) |
-| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `read_at`, for a managed route with a wake cap or a pod price the day's wake and pod figures, and for every route the figures of its daily caps (below, "The day's figures of a route") |
+| `routes` | none | the model routes the daemon declares, in order of name: `route`, `gateway` (its name), `alias`, `kind`, `wires`, `status`, `phase` when the gateway gave one, `max_model_len` and `tool_calling` when `/v1/models` gave them, `start_wait_seconds` when the daemon's file declares it (a route of any kind), `read_at`, for a managed route with a wake cap or a pod price the day's wake and pod figures, and for every route the figures of its daily caps (below, "The day's figures of a route") |
 | `delegation-result` | `run_id` | one row: what a delegation's run has come to, its result text and its calls (below, "A delegation") |
 | `run-metrics` | `run_id` | one row: what the run took, its times, a row per step and the totals of its model calls, tokens and cost (below, "The metrics of a run") |
 | `catalog` | none | one row: the declared routes with their prices, the runbooks with their purpose, inputs and the admission of their route entries, and the terms of a delegation (below, "The catalog") |
@@ -377,8 +377,12 @@ it joins a wake already sent:
   the daemon's clock; `booked_micro_usd` is what the route's wakes of that day that the gateway took or has not
   answered yet add up to with this one. The booking is the journal's, so a daemon started again counts the wakes of
   the day it booked before.
-- A wake the rest of the day's cap does not cover is not sent: the event says `"sent": false, "reason": "wake cap
-  reached"` with what the day booked so far, and the run waits as any run that waits.
+- A wake the rest of the day's cap does not cover is not sent: the event says `{"route", "sent": false, "reason": "wake
+  cap reached", "day", "cost_micro_usd", "booked_micro_usd", "cap_micro_usd"}`, `booked_micro_usd` what the day booked
+  so far, `cap_micro_usd` the cap in force when it was refused (the daemon reads the cap at its start, so a cap raised
+  since then is not the one that refused it), and `pod_micro_usd` on a route with a pod price (below); the run waits as
+  any run that waits. The row of the view `routes` answers the day's newest such refusal and its cap ("The day's
+  figures of a route").
 - The gateway's answer is the run event `runbook.route-wake-answered`: `{"route", "status"}` (`status` null when it
   did not answer within 5 s) and `code`, the gateway's error code, when it gave one. A run closed while its wake was
   out (cancelled, ended) takes no event, so its answer is the daemon's journal line `route.wake-answered`
@@ -449,8 +453,15 @@ journal when the view is asked, by the functions the cap of a wake reads (`wake_
 | `wake_cap_micro_usd` | the same | `wake_daily_cap_micro_usd` |
 | `wake_cost_micro_usd` | the same, and the cost declared | `wake_cost_micro_usd` |
 | `wake_last_sent_at` | the same, and a wake of the route was sent | the `at` of the newest sent `runbook.route-wake` of the route, on any day, whatever its answer |
+| `wake_last_answer` | with `wake_last_sent_at` | how that wake was answered, one word per case: `2xx`, `4xx`, `5xx` (the class of the gateway's `status`; `1xx` and `3xx` alike), `spend-ceiling` (the gateway's `code`, whatever the status), `no-answer` (`status` null: no answer within 5 s), `none-yet` (the wake is in flight: its run lives, or its run was closed and the daemon still waits for the answer) or `lost` (never answered: the daemon went away while it was out) |
+| `wake_last_answered_at` | with `wake_last_answer`, except `none-yet` and `lost` | the `at` of that answer: its `runbook.route-wake-answered`, or the line `route.wake-answered` of a run closed before it came |
 | `wake_needed` | the same | true when the wake is on (`wake_on_submit`), the phase of the row is `stopped`, a run that takes the route (or a delegation the daemon classifies, on the classifier route) is `WaitingForRoute`, no wake of the route is out (sent, not answered yet, its run live, also past the wait) and none may be joined (a wake within the route's `start_wait_seconds` that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives): a run waits and the daemon sends no wake for it, because the wake would pass the day's cap, was answered `4xx`, or the wake the run joined is past its wait. Otherwise false, also with the wake off |
+| `wake_joinable` | managed, `wake_daily_cap_micro_usd` declared | true when the wake is on and a run that wakes the route now would join a wake in flight and send and book none, by the rule the wake applies when a run wakes the route (`wake_sent_within`, above: the newest sent wake less than `start_wait_seconds` old that the gateway took or answered `spend-ceiling`, or that is out, failed or not answered while its run lives). Otherwise false, also with the wake off. Whether and when a run wakes the route turns on the row's phase (`stopped`) and, for a run behind a serial key, on when it holds the key |
+| `wake_joinable_sent_at` | while `wake_joinable` is true | the `at` of that wake's `runbook.route-wake`: the `joined_at` a run that joins it records |
+| `wake_joinable_until` | the same | `wake_joinable_sent_at` plus the route's `start_wait_seconds`: a run that wakes the route before this instant joins the wake; one that wakes it at or after this instant sends its own. The join is decided when the run wakes the route, not at its submit: a run behind a serial key wakes the route only once it holds the key (decision D19 of the unit's coordinator). It may stop being joinable sooner (a `4xx` answer, its run ending without a `2xx`) |
 | `ceiling_refused_at` | the same, and a wake of the route was answered `spend-ceiling` today | the `at` of the newest such answer: a `runbook.route-wake-answered`, or the line `route.wake-answered` of a run closed before it came |
+| `wake_cap_refused_at` | managed, `wake_daily_cap_micro_usd` declared, and a wake of the route was refused for the wake cap today | the `at` of the newest `runbook.route-wake` of the day with `"reason": "wake cap reached"`; a later wake of the day that was sent leaves it |
+| `wake_cap_refused_cap_micro_usd` | with `wake_cap_refused_at` | that refusal's `cap_micro_usd`, the cap in force when it was refused. Compared with `wake_cap_micro_usd` (the cap the daemon read at its start), it tells a refusal under a cap since raised from one that still holds |
 | `pod_booked_micro_usd` | managed, `price_per_hour_micro_usd` declared | the pod's time of the day up to now at the price, each run's share, also of runs that still live (above) |
 
 A member that does not apply is absent, as every optional member of the daemon's rows is (a client that indexes the
@@ -458,6 +469,17 @@ row reads null). A wake is not sent when `wake_booked_micro_usd + pod_booked_mic
 `wake_cap_micro_usd`; its `runbook.route-wake` holds `booked_micro_usd`, the first two added, and `pod_micro_usd`,
 the second. The phase is the one of the row (the last read of the gateway, at most 15 s of the daemon's clock old);
 the figures are read when the view is asked.
+
+Which answer ends a gateway's spend ceiling for a client: the newest wake's answer, `wake_last_answer`, not the
+instant of a send. A wake sent after `ceiling_refused_at` that is answered `4xx`, `5xx`, `no-answer` or is still
+`none-yet` says nothing of the ceiling; one answered `2xx` says the gateway took a wake again. `ceiling_refused_at`
+keeps its meaning, the day's newest `spend-ceiling` answer (stories `the-routes-row-says-how-the-newest-wake-was-answered`,
+`a-refused-wake-records-the-cap-in-force`, `the-routes-row-says-whether-a-new-run-would-join-a-wake`).
+
+`wake_needed` and `wake_joinable` answer two questions: `wake_needed` says a run waits now and the daemon sends no wake
+for it; `wake_joinable` says a run that wakes the route now would join the wake in flight instead of
+sending its own. Both are false when no wake was sent and no run waits, and they are never both true: a wake a run
+may join is one reason no wake is needed.
 
 Every row also answers the figures of the route's daily caps on the same day (story
 `any-route-kind-takes-a-daily-cap`; `docs/model-routes.md`, section 5). They are read from the figures the relay holds
@@ -704,9 +726,11 @@ with what a delegation may name on this daemon (`docs/model-routes.md`, section 
 
 - `routes`: each declared route, in order of name, as the view `routes` reads it (`route`, `gateway` by name,
   `alias`, `kind`, `wires`, `status`, `phase`, `read_at`, and `max_model_len` and `tool_calling` when the gateway's
-  `GET /v1/models` gives them for the alias), with what the daemon's file declares beside the address:
-  `price_in_micro_usd_per_mtok`, `price_out_micro_usd_per_mtok` and `start_wait_seconds`, each when declared, and the
-  day's figures of the route as the view `routes` answers them ("The day's figures of a route").
+  `GET /v1/models` gives them for the alias, and `start_wait_seconds` when declared), with the prices the daemon's file
+  declares beside the address: `price_in_micro_usd_per_mtok` and `price_out_micro_usd_per_mtok`, each when declared,
+  and the day's figures of the route as the view `routes` answers them ("The day's figures of a route"). The route is
+  the view's row with the prices added, so the two answer the same `start_wait_seconds`; a row of `routes` names no
+  price.
 - `runbooks`: each row of the view `runbooks`, with `title` (the root protocol's title, else the first sentence of its
   description), `description` (at most 2000 characters), `inputs` (`idea` when the root bindings place it: the request
   is the run's intake), and the admission of its route entries.

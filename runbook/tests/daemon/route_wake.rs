@@ -33,6 +33,9 @@ pub(super) enum WakeSaid {
     Silent,
     /// Answered with this status and body once the case lets it go (`Gateway::let_go`), at most 4 s after it came.
     Held(u16, Value),
+    /// Held open until the case lets it go, at most 4 s, then closed with no answer: the daemon writes the status null
+    /// as for an answer that did not come within its bound, without the case waiting out the bound.
+    HeldSilent,
 }
 
 fn respond(stream: &mut std::net::TcpStream, code: u16, body: &Value) {
@@ -115,6 +118,17 @@ impl Gateway {
                                 std::thread::sleep(Duration::from_millis(5));
                             }
                             respond(&mut stream, code, &body);
+                            s.lock().unwrap().held_answered += 1;
+                        });
+                    }
+                    WakeSaid::HeldSilent => {
+                        let s = s.clone();
+                        std::thread::spawn(move || {
+                            let limit = Instant::now() + Duration::from_secs(4);
+                            while !s.lock().unwrap().let_go && Instant::now() < limit {
+                                std::thread::sleep(Duration::from_millis(5));
+                            }
+                            drop(stream);
                             s.lock().unwrap().held_answered += 1;
                         });
                     }
@@ -1091,5 +1105,356 @@ fn the_openapi_document_declares_the_wake_figures_of_a_route_row_and_of_a_catalo
         }
         let required: Vec<&str> = s["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         assert!(FIGURES.iter().all(|k| !required.contains(k)), "{schema} requires a figure: {required:?}");
+    }
+}
+
+// ---- story the-routes-view-row-answers-start-wait-seconds ----
+
+/// The route `route` of the catalog of `d`.
+pub(super) fn catalog_route(d: &Daemon, route: &str) -> Value {
+    d.catalog()[0]["routes"].as_array().unwrap().iter().find(|r| r["route"] == route).cloned().unwrap_or_else(|| panic!("the catalog has no route {route}"))
+}
+
+/// The row of `route` of the MCP tool `list_routes` on `d`.
+pub(super) fn listed_route(d: &Daemon, route: &str) -> Value {
+    let tool = runbook::mcp::tools::call(&runbook::mcp::Local(d.clone()), "list_routes", &json!({})).unwrap();
+    tool.body["rows"].as_array().unwrap().iter().find(|r| r["route"] == route).cloned().unwrap_or_else(|| panic!("list_routes has no row {route}"))
+}
+
+/// A route that declares `start_wait_seconds` answers it in its row of the view `routes`, its route of the catalog and
+/// its row of `list_routes`, whatever its kind (managed, local, hosted); one that declares none answers none of the
+/// three. The catalog's route names the member once: it takes it from the row.
+#[test]
+fn the_routes_row_the_catalog_and_list_routes_answer_start_wait_seconds_where_the_file_declares_it() {
+    let gw = Gateway::start("stopped", (202, json!({})));
+    let dir = super::state::scratch("row-start-wait");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let extra = json!({
+        "llama": {"gateway": "local", "model": "llama", "kind": "local", "start_wait_seconds": 600},
+        "opus": {"gateway": "local", "model": "opus", "kind": "hosted", "start_wait_seconds": 600},
+        "bare": {"gateway": "local", "model": "bare", "kind": "managed"},
+    });
+    let d = daemon_with(&dir, &gw, wake_on(500, 100), extra, clock);
+    for route in ["qwen", "llama", "opus"] {
+        let (row, cat, listed) = (route_row(&d, route), catalog_route(&d, route), listed_route(&d, route));
+        assert_eq!((row["start_wait_seconds"].clone(), cat["start_wait_seconds"].clone(), listed["start_wait_seconds"].clone()), (json!(600), json!(600), json!(600)), "{route}: {row} {cat} {listed}");
+        assert_eq!(cat.to_string().matches("\"start_wait_seconds\"").count(), 1, "{cat}");
+        super::openapi::check_row("Routes", &row);
+    }
+    for route in ["claude", "bare"] {
+        let (row, cat, listed) = (route_row(&d, route), catalog_route(&d, route), listed_route(&d, route));
+        assert!(row.get("start_wait_seconds").is_none() && cat.get("start_wait_seconds").is_none() && listed.get("start_wait_seconds").is_none(), "{route}: {row} {cat} {listed}");
+    }
+    let s = &super::openapi::doc()["components"]["schemas"]["sdc.daemon.Routes.Row"];
+    assert_eq!(s["properties"]["start_wait_seconds"]["type"], "integer", "{s}");
+    let required: Vec<&str> = s["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    assert!(!required.contains(&"start_wait_seconds"), "{required:?}");
+    gw.no_call();
+}
+
+// ---- stories the-routes-row-says-how-the-newest-wake-was-answered, a-refused-wake-records-the-cap-in-force and
+// the-routes-row-says-whether-a-new-run-would-join-a-wake: members of the same row, one walk of the wake events ----
+
+/// How the newest wake of the route was answered, and when.
+const ANSWER: [&str; 2] = ["wake_last_answer", "wake_last_answered_at"];
+/// The day's newest wake refused for the wake cap, and the cap that refused it.
+const REFUSED: [&str; 2] = ["wake_cap_refused_at", "wake_cap_refused_cap_micro_usd"];
+/// Whether a run submitted now would join a wake in flight, which, and until when.
+const JOIN: [&str; 3] = ["wake_joinable", "wake_joinable_sent_at", "wake_joinable_until"];
+
+/// Each of `members` of the row of `route`, null when absent; the catalog's route and the row of `list_routes` answer
+/// the same.
+fn picked(d: &Daemon, route: &str, members: &[&str]) -> Value {
+    let pick = |row: &Value| Value::Object(members.iter().map(|k| ((*k).to_owned(), row.get(*k).cloned().unwrap_or(Value::Null))).collect());
+    let (row, cat, listed) = (route_row(d, route), catalog_route(d, route), listed_route(d, route));
+    assert_eq!(pick(&cat), pick(&row), "the catalog answers otherwise: {cat} {row}");
+    assert_eq!(pick(&listed), pick(&row), "list_routes answers otherwise: {listed} {row}");
+    super::openapi::check_row("Routes", &row);
+    pick(&row)
+}
+
+/// The members `members` of `route` are absent from its row, its catalog route and its row of `list_routes`.
+fn none_of(d: &Daemon, route: &str, members: &[&str]) {
+    for row in [route_row(d, route), catalog_route(d, route), listed_route(d, route)] {
+        assert!(members.iter().all(|k| row.get(*k).is_none()), "{route} answers one of {members:?}: {row}");
+    }
+}
+
+fn answered(answer: &str, at: Option<&str>) -> Value {
+    json!({"wake_last_answer": answer, "wake_last_answered_at": at})
+}
+
+fn ceiling_answer() -> Value {
+    json!({"error": {"code": "spend-ceiling", "message": "a pod start would pass the daily cap"}})
+}
+
+/// A wake the gateway took (202): the row answers `2xx` with the instant of its `runbook.route-wake-answered`.
+#[test]
+fn the_row_answers_2xx_and_the_instant_of_the_answer_to_the_newest_wake() {
+    let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));
+    let (d, _) = daemon("answer-2xx", &gw, wake_on(500, 100));
+    let run = submit(&d, "qwen");
+    until_records(&d, &run, "runbook.route-wake-answered");
+    let at = ats(&d, &run, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("2xx", Some(&at[0])));
+    gw.no_call();
+}
+
+/// The answer's instant is not the send's: a wake sent at 10:00:00 that the stand-in answers 202 at 10:00:02 of the test
+/// clock answers `wake_last_answered_at` 10:00:02, the `at` of its `runbook.route-wake-answered`, beside
+/// `wake_last_sent_at` 10:00:00.
+#[test]
+fn the_answers_instant_is_that_of_the_answer_not_of_the_send() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Held(202, json!({"model": "qwen", "phase": "starting"}))], (202, json!({})));
+    let (d, clock) = daemon("answer-later", &gw, wake_on(500, 100));
+    let run = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    clock.set("2026-11-26T10:00:02Z");
+    gw.let_go(1);
+    until_records(&d, &run, "runbook.route-wake-answered");
+    assert_eq!(ats(&d, &run, "runbook.route-wake-answered"), vec!["2026-11-26T10:00:02.000Z".to_owned()]);
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("2xx", Some("2026-11-26T10:00:02.000Z")));
+    assert_eq!(route_row(&d, "qwen")["wake_last_sent_at"], "2026-11-26T10:00:00.000Z");
+    gw.no_call();
+}
+
+/// A wake answered `spend-ceiling`, then on the next day of the test clock a wake answered 404: the row answers `4xx`
+/// with the second answer's instant, not the ceiling; a later wake answered 503 answers `5xx`.
+#[test]
+fn the_row_answers_the_class_of_the_newest_answer_spend_ceiling_then_4xx_then_5xx() {
+    let not_found = WakeSaid::Answer(404, json!({"error": {"code": "not-found"}}));
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Answer(503, ceiling_answer()), not_found, unavailable()], (202, json!({})));
+    let (d, clock) = daemon("answer-classes", &gw, wake_on(500, 100));
+    let first = submit(&d, "qwen");
+    assert_eq!(until_state(&d, &first, "Ended")["outcome"], "stopped: route");
+    let at = ats(&d, &first, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("spend-ceiling", Some(&at[0])));
+
+    clock.set("2026-11-27T10:00:00Z");
+    let second = submit(&d, "qwen");
+    until_records(&d, &second, "runbook.route-wake-answered");
+    let at = ats(&d, &second, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("4xx", Some(&at[0])));
+
+    // a wake answered 4xx is not joined: the next run sends its own
+    let third = submit(&d, "qwen");
+    until_records(&d, &third, "runbook.route-wake-answered");
+    let at = ats(&d, &third, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("5xx", Some(&at[0])));
+    assert_eq!(gw.wakes(), 3);
+    gw.no_call();
+}
+
+/// A wake the stand-in holds: `none-yet` while it is out, then, closed without an answer, `no-answer` with the instant
+/// the daemon wrote the null status.
+#[test]
+fn a_wake_out_answers_none_yet_and_one_not_answered_answers_no_answer_with_the_instant_of_the_null_status() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::HeldSilent], (202, json!({})));
+    let (d, _) = daemon("answer-none-yet", &gw, wake_on(500, 100));
+    let run = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("none-yet", None));
+    gw.let_go(1);
+    assert_eq!(until_records(&d, &run, "runbook.route-wake-answered"), vec![json!({"route": "qwen", "status": null})]);
+    let at = ats(&d, &run, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("no-answer", Some(&at[0])));
+    gw.no_call();
+}
+
+/// A run cancelled while its wake is out: the wake is still in flight in this daemon (`none-yet`), and once the gateway
+/// takes it the row answers the class of the daemon's line `route.wake-answered` and its instant.
+#[test]
+fn a_wake_whose_run_was_cancelled_answers_the_class_and_instant_of_the_daemons_line() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Held(202, json!({"model": "qwen", "phase": "starting"}))], (202, json!({})));
+    let dir = super::state::scratch("answer-after-cancel");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(500, 100), clock.clone());
+    let run = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    assert_eq!(d.cancel_run(CancelRun { run_id: run.clone() }).unwrap().name, "cancelled");
+    until_state(&d, &run, "Cancelled");
+    clock.set("2026-11-26T10:00:03Z");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("none-yet", None), "a wake still in flight reads as lost");
+    gw.let_go(1);
+    let lines = wake_answer_lines(&dir.join("state"));
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["at"], "2026-11-26T10:00:03.000Z", "{lines:?}");
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("2xx", lines[0]["at"].as_str()));
+    gw.no_call();
+}
+
+/// The daemon is killed while a wake is out (the journal as it was then, read by a daemon on a new directory): no answer
+/// can come, the row answers `lost` and no instant.
+#[test]
+fn a_wake_out_when_the_daemon_was_killed_answers_lost_after_the_restart() {
+    let gw = Gateway::start_with("stopped", vec![WakeSaid::Held(202, json!({"model": "qwen", "phase": "starting"}))], (202, json!({})));
+    let dir = super::state::scratch("answer-lost");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(500, 100), clock.clone());
+    let run = submit(&d, "qwen");
+    until_wakes(&gw, 1);
+    until_records(&d, &run, "runbook.route-wake");
+    let journal = std::fs::read(dir.join("state/journal.jsonl")).unwrap();
+    gw.let_go(1);
+    d.stop();
+    drop(d);
+
+    let again = super::state::scratch("answer-lost-restart");
+    std::fs::create_dir_all(again.join("state")).unwrap();
+    std::fs::write(again.join("state/journal.jsonl"), journal).unwrap();
+    let d = daemon_in(&again, &gw, wake_on(500, 100), clock);
+    assert_eq!(picked(&d, "qwen", &ANSWER), answered("lost", None));
+    assert_eq!(route_row(&d, "qwen")["wake_last_sent_at"], "2026-11-26T10:00:00.000Z");
+    gw.no_call();
+}
+
+/// Story `a-refused-wake-records-the-cap-in-force`: a cap of 250 and a cost of 100, two wakes taken, the third run's wake
+/// is refused with the cap in its record, and the row answers that refusal and its cap. The operator raises the cap to
+/// 500 and starts the daemon again on the same state, the same day: the row answers the new cap and still the refusal
+/// under 250, and a new run's wake is sent and booked. At 00:00 UTC both are gone.
+#[test]
+fn a_wake_refused_for_the_cap_answers_the_cap_in_force_and_a_raised_cap_is_told_from_it() {
+    let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));
+    let dir = super::state::scratch("cap-refused");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let d = daemon_in(&dir, &gw, wake_on(250, 100), clock.clone());
+    let first = submit(&d, "qwen");
+    until_records(&d, &first, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &REFUSED), json!({"wake_cap_refused_at": null, "wake_cap_refused_cap_micro_usd": null}));
+    clock.set("2026-11-26T10:10:01Z");
+    let second = submit(&d, "qwen");
+    until_records(&d, &second, "runbook.route-wake-answered");
+    clock.set("2026-11-26T10:20:02Z");
+    let third = submit(&d, "qwen");
+    let refused = until_records(&d, &third, "runbook.route-wake");
+    assert_eq!((refused[0]["reason"].clone(), refused[0]["cap_micro_usd"].clone()), (json!("wake cap reached"), json!(250)), "{refused:?}");
+    let at = ats(&d, &third, "runbook.route-wake");
+    let want = json!({"wake_cap_refused_at": at[0], "wake_cap_refused_cap_micro_usd": 250});
+    assert_eq!(picked(&d, "qwen", &REFUSED), want);
+    assert_eq!(route_row(&d, "qwen")["wake_cap_micro_usd"], 250);
+
+    d.stop();
+    drop(d);
+    clock.set("2026-11-26T10:30:03Z");
+    let d = daemon_in(&dir, &gw, wake_on(500, 100), clock.clone());
+    assert_eq!(route_row(&d, "qwen")["wake_cap_micro_usd"], 500);
+    assert_eq!(picked(&d, "qwen", &REFUSED), want, "a daemon started again with a raised cap lost the refusal");
+    let fourth = submit(&d, "qwen");
+    let booked = until_records(&d, &fourth, "runbook.route-wake");
+    assert_eq!(booked, vec![json!({"route": "qwen", "sent": true, "day": "2026-11-26", "cost_micro_usd": 100, "booked_micro_usd": 300, "cap_micro_usd": 500})]);
+    until_records(&d, &fourth, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &REFUSED), want, "a wake sent later that day dropped the refusal");
+
+    clock.set("2026-11-27T00:00:00Z");
+    none_of(&d, "qwen", &REFUSED);
+    gw.no_call();
+}
+
+/// Story `the-routes-row-says-whether-a-new-run-would-join-a-wake`: before any wake none may be joined; a wake taken at
+/// 10:00:00 may be joined until 10:10:00 (the route's wait of 600 s), a run submitted at 10:05:00 joins it, and at
+/// 10:10:00 none may be.
+#[test]
+fn a_wake_taken_may_be_joined_until_its_instant_plus_the_wait_and_a_run_within_it_joins_it() {
+    let gw = Gateway::start("stopped", (202, json!({"model": "qwen", "phase": "starting"})));
+    let (d, clock) = daemon("joinable", &gw, wake_on(500, 100));
+    let not_joinable = json!({"wake_joinable": false, "wake_joinable_sent_at": null, "wake_joinable_until": null});
+    assert_eq!(picked(&d, "qwen", &JOIN), not_joinable);
+    let first = submit(&d, "qwen");
+    until_records(&d, &first, "runbook.route-wake-answered");
+    let sent_at = ats(&d, &first, "runbook.route-wake");
+    assert_eq!(sent_at, vec!["2026-11-26T10:00:00.000Z".to_owned()]);
+    assert_eq!(picked(&d, "qwen", &JOIN), json!({"wake_joinable": true, "wake_joinable_sent_at": sent_at[0], "wake_joinable_until": "2026-11-26T10:10:00.000Z"}));
+
+    clock.set("2026-11-26T10:05:00Z");
+    let second = submit(&d, "qwen");
+    let joined = until_records(&d, &second, "runbook.route-wake");
+    assert_eq!((joined[0]["reason"].clone(), joined[0]["joined_at"].clone()), (json!("joined a wake sent within the wait"), json!(sent_at[0])), "{joined:?}");
+
+    clock.set("2026-11-26T10:10:00Z");
+    assert_eq!(picked(&d, "qwen", &JOIN), not_joinable);
+    assert_eq!(gw.wakes(), 1);
+    gw.no_call();
+}
+
+/// A wake answered 404 may not be joined at once. A wake answered 503 may be while its run lives (that run sends it
+/// again), and no longer once that run is cancelled.
+#[test]
+fn a_wake_answered_4xx_is_not_joinable_and_one_answered_5xx_is_while_its_run_lives() {
+    let not_found = WakeSaid::Answer(404, json!({"error": {"code": "not-found"}}));
+    let gw = Gateway::start_with("stopped", vec![not_found, unavailable()], (202, json!({})));
+    let (d, _) = daemon("joinable-classes", &gw, wake_on(500, 100));
+    let first = submit(&d, "qwen");
+    until_records(&d, &first, "runbook.route-wake-answered");
+    assert_eq!(picked(&d, "qwen", &JOIN)["wake_joinable"], false);
+
+    let second = submit(&d, "qwen");
+    assert_eq!(until_records(&d, &second, "runbook.route-wake-answered")[0]["status"], 503);
+    let sent_at = ats(&d, &second, "runbook.route-wake");
+    assert_eq!(picked(&d, "qwen", &JOIN), json!({"wake_joinable": true, "wake_joinable_sent_at": sent_at[0], "wake_joinable_until": "2026-11-26T10:10:00.000Z"}));
+    assert_eq!(d.cancel_run(CancelRun { run_id: second.clone() }).unwrap().name, "cancelled");
+    until_state(&d, &second, "Cancelled");
+    assert_eq!(picked(&d, "qwen", &JOIN)["wake_joinable"], false);
+    gw.no_call();
+}
+
+/// A wake answered `spend-ceiling` may be joined within the wait: a run that joins it ends `stopped: route`.
+#[test]
+fn a_wake_answered_spend_ceiling_is_joinable_within_the_wait_and_its_joiner_ends_stopped_route() {
+    let gw = Gateway::start("stopped", (503, ceiling_answer()));
+    let (d, clock) = daemon("joinable-ceiling", &gw, wake_on(500, 100));
+    let first = submit(&d, "qwen");
+    until_state(&d, &first, "Ended");
+    let sent_at = ats(&d, &first, "runbook.route-wake");
+    assert_eq!(picked(&d, "qwen", &JOIN), json!({"wake_joinable": true, "wake_joinable_sent_at": sent_at[0], "wake_joinable_until": "2026-11-26T10:10:00.000Z"}));
+    clock.set("2026-11-26T10:05:00Z");
+    let second = submit(&d, "qwen");
+    assert_eq!(until_state(&d, &second, "Ended")["outcome"], "stopped: route");
+    assert_eq!(records(&d, &second, "runbook.route-wake")[0]["joined_at"], json!(sent_at[0]));
+    assert_eq!(gw.wakes(), 1);
+    gw.no_call();
+}
+
+/// A managed route with a wake cap and no wake sent answers neither the answer nor a refusal, and may not be joined; one
+/// with the wake off (a cap and a cost, no `wake_on_submit`) may not be joined either. A managed route without wake keys,
+/// a hosted and a local route answer none of the members.
+#[test]
+fn routes_without_a_wake_sent_or_without_wake_keys_answer_none_of_the_answer_refusal_or_join_members() {
+    let gw = Gateway::start("stopped", (202, json!({})));
+    let dir = super::state::scratch("row-members-kinds");
+    let clock = Arc::new(SetClock::at("2026-11-26T10:00:00Z").unwrap());
+    let extra = json!({
+        "llama": {"gateway": "local", "model": "llama", "kind": "local"},
+        "bare": {"gateway": "local", "model": "bare", "kind": "managed"},
+        "off": {"gateway": "local", "model": "off", "kind": "managed", "start_wait_seconds": 600, "wake_daily_cap_micro_usd": 500, "wake_cost_micro_usd": 100},
+    });
+    let d = daemon_with(&dir, &gw, wake_on(500, 100), extra, clock);
+    for route in ["qwen", "off"] {
+        none_of(&d, route, &ANSWER);
+        none_of(&d, route, &REFUSED);
+        assert_eq!(picked(&d, route, &JOIN), json!({"wake_joinable": false, "wake_joinable_sent_at": null, "wake_joinable_until": null}), "{route}");
+    }
+    for route in ["bare", "claude", "llama"] {
+        let all: Vec<&str> = ANSWER.iter().chain(&REFUSED).chain(&JOIN).copied().collect();
+        none_of(&d, route, &all);
+    }
+    gw.no_call();
+}
+
+/// The OpenAPI document declares the members as optional members of a row of the view `routes` and of a route of the
+/// catalog, with their types.
+#[test]
+fn the_openapi_document_declares_the_answer_refusal_and_join_members_of_a_route_row_and_of_a_catalog_route() {
+    let doc = super::openapi::doc();
+    let types = [("wake_last_answer", "string"), ("wake_last_answered_at", "string"), ("wake_cap_refused_at", "string"), ("wake_cap_refused_cap_micro_usd", "integer"), ("wake_joinable", "boolean"), ("wake_joinable_sent_at", "string"), ("wake_joinable_until", "string")];
+    for schema in ["sdc.daemon.Routes.Row", "sdc.daemon.CatalogRoute"] {
+        let s = &doc["components"]["schemas"][schema];
+        for (member, ty) in types {
+            assert_eq!(s["properties"][member]["type"], ty, "{schema}.{member}: {}", s["properties"][member]);
+        }
+        for member in ["wake_last_answered_at", "wake_cap_refused_at", "wake_joinable_sent_at", "wake_joinable_until"] {
+            assert_eq!(s["properties"][member]["format"], "date-time", "{schema}.{member}");
+        }
+        let required: Vec<&str> = s["required"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(types.iter().all(|(k, _)| !required.contains(k)), "{schema} requires a member: {required:?}");
     }
 }
