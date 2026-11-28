@@ -7,6 +7,14 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-28
+
+No entry is marked breaking; every new member of the view `routes` is optional and absent where it does not apply. A
+row of the view `routes` (and of the catalog and the MCP tool `list_routes`) answers the route's `start_wait_seconds`,
+how and when the newest wake of a managed route was answered, the day's newest wake refused for the wake cap with the
+cap in force at the refusal, and whether a run that wakes the route now would join a wake in flight. No evaluation run
+was made on this code. The longer note is `docs/releases/0.16.0.md`.
+
 ### Added
 - A row of the view `routes` (and of the MCP tool `list_routes`) answers the route's `start_wait_seconds` when the daemon's file declares it, for a route of any kind; the catalog's route takes it from the row (story `the-routes-view-row-answers-start-wait-seconds`; `docs/daemon-api.md`, the view `routes` and "The catalog").
 - A managed route's row of the view `routes` (and its route of the catalog and of `list_routes`) says how the newest wake was answered and when: `wake_last_answer` (`2xx`, `4xx`, `5xx`, `spend-ceiling`, `no-answer`, `none-yet`, `lost`) and `wake_last_answered_at`; the newest wake's answer, not a send after `ceiling_refused_at`, is what ends a ceiling for a client (story `the-routes-row-says-how-the-newest-wake-was-answered`; `docs/daemon-api.md`, "The day's figures of a route").
