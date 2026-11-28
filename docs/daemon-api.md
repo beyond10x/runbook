@@ -476,7 +476,9 @@ A route of any kind may declare either cap in `runbook.toml` (`docs/model-routes
 Before a call is sent the relay holds it against its route's day: it is refused `429 cap-reached`, with `cap_key`
 `route.<name>.daily_max_llm_calls`, when `daily_llm_calls` has reached the cap of calls, and with `cap_key`
 `route.<name>.daily_cap_micro_usd` when `daily_booked_micro_usd` has reached the spend cap; the cap of calls is read
-first. Nothing is sent, and the call is not taken against the run's caps. The spend cap holds the booked figure, so
+first. Nothing is sent, and the call is not taken against the run's caps. A call is counted on its route only after
+the run's caps took it, so a call its run refuses holds no count of the route's day meanwhile; one the route refuses
+at that count is given back to the run's caps. The spend cap holds the booked figure, so
 the third of three calls of 1000 micro USD under a cap of 3000 is sent and the fourth is refused; a call is booked
 before its caller sees the end of its answer, so no call is sent once the figure has reached the cap, and the last
 call sent below it (with any sent beside it) may take the figure above the cap by its cost. The day is the UTC date of
@@ -486,8 +488,10 @@ started again rebuilds the figures from the model-call lines of every ledger und
 the daemon was killed has no line and is not counted; a ledger that cannot be read refuses every call on a route with
 a daily cap). A run whose call a route's daily cap refused ends as a run at a cap ends ("Caps of a run"):
 `stopped: llm calls` for `daily_max_llm_calls`, `stopped: spend cap` for `daily_cap_micro_usd`, after the step that
-made the call (or before the next step, for a call of its decider), and its `runbook.cap-reached` names `route` and
-`cap_key` beside `cap` and `detail`.
+made the call, at once for a call of its decider (it does not wait for a person) and for a classify call of a
+delegation (it ends `Ended`, not `FailedToStart`), and its `runbook.cap-reached` names `route` and `cap_key` beside
+`cap` and `detail`. An answer with no usage at all books its reservation on a priced route too, so a gateway that
+reports no usage still fills `daily_cap_micro_usd`.
 
 ### The copy of a context
 
@@ -1494,8 +1498,8 @@ On a loopback listener:
   cost is not known (no price, or no tokens reported) books its reservation with `cost_known: false`: the step's
   largest reservation while its step runs, else what one call of the decider may cost, at most what the cap has
   left, fixed as the call is admitted, so a call answered after its step's program was killed books what its step
-  held. An answer with no usage at all costs 0 at the route's declared prices, and on a route without prices, of
-  any kind, books its reservation. A step whose calls the relay booked or still takes costs those calls; its own
+  held. An answer with no usage at all is a call of unknown cost on a route of any kind, priced or not, and
+  books its reservation. A step whose calls the relay booked or still takes costs those calls; its own
   reservation is released. A `stream_options` that is `null` or no object is replaced by
   `{"include_usage": true}`. A call that was sent is booked once. A caller that hangs up before the answer has ended
   ends the call at the gateway: the relay closes its request to the gateway within a second and books the call with

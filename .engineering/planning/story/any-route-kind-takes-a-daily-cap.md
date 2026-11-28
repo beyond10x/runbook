@@ -11,7 +11,7 @@ relations:
 - informed_by: story:daemon-caps-are-keys-of-one-file
 - informed_by: story:route-wake-behind-a-daily-cap
 - informed_by: story:a-managed-route-books-its-pods-measured-time
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-27T23:21:44Z", actor: "agent:runbook", revision: 2}
 - {from: "proposed", to: "active", at: "2026-11-27T23:21:44Z", actor: "agent:runbook", revision: 3}
@@ -90,19 +90,27 @@ Taken by the unit that built the story (2026-11-28), each reversible by editing 
   the cap by its own cost, which is not known before its answer ends. A reservation rule would refuse a call whenever
   the step's reservation passes what is left, which the Acceptance does not want.
 - The calls rule: a call is counted as it is admitted, so `daily_llm_calls` never passes `daily_max_llm_calls`. The cap
-  of calls is read before the spend cap; a call the run's own caps then refuse gives its count back.
+  of calls is read before the spend cap. The route's figures are read before the run's own caps, and the call is
+  counted on the route only after those took it: a call its run refuses never holds a count of the route's day while
+  its run decides, so it takes no other run's last call. A call the route refuses at that count (another run took the
+  last call in between) is given back to the run's caps.
 - A route with no declared price is counted by its calls. Its calls book their reservation (cost unknown), so
   `daily_cap_micro_usd` on a route that declares neither `price_in_micro_usd_per_mtok` nor
   `price_out_micro_usd_per_mtok` is refused at start by name, and `daily_max_llm_calls` caps it. Its
   `daily_booked_micro_usd` still answers what its lines booked.
+- An answer with no usage at all is a call of unknown cost on a priced route too, the same as a call on a route with no
+  price: it books its reservation (the coordinator's decision D17, 2026-11-28), in the run's ledger and in the route's
+  day alike, so the two never differ and a daemon started again rebuilds the same figure. Booking 0 for it would leave
+  `daily_cap_micro_usd` unfilled against a gateway that reports no usage.
 - The day key: the relay writes the day a call counts on (the UTC date of the daemon's clock as the call was admitted)
   into its ledger line and its `runbook.model-call` as `day`. A daemon started again rebuilds the figures from the
   model-call lines of every ledger under its `ledgers/`. `story:daemon-caps-are-keys-of-one-file` can read the same key
   for its daemon-wide day figures. A call in flight when the daemon was killed has no line and is not counted; a ledger
   that cannot be read at start refuses every call on a route with a daily cap.
 - The run at a route's cap ends as a run at a cap ends: `stopped: llm calls` for `daily_max_llm_calls`,
-  `stopped: spend cap` for `daily_cap_micro_usd`, after the step that made the call (before the next step for a call of
-  its decider); its `runbook.cap-reached` carries `route` and `cap_key` beside `cap` and `detail`.
+  `stopped: spend cap` for `daily_cap_micro_usd`, after the step that made the call, at once for a call of its
+  decider (not in a wait for a person) and for a classify call of a delegation (`Ended`, not `FailedToStart`); its
+  `runbook.cap-reached` carries `route` and `cap_key` beside `cap` and `detail`.
 - The view `routes` answers `daily_booked_micro_usd` and `daily_llm_calls` for every route, `daily_cap_micro_usd` and
   `daily_max_llm_calls` where declared (absent, read as null, otherwise), from the same figures the relay admits a call
   by.

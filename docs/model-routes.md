@@ -376,7 +376,8 @@ At submit, after the route is resolved and before anything is written:
   written to the prompt cache, booked in fields of their own beside `input_tokens`); without, `cost_known: false` and
   the call books its reservation (the step's largest while its step runs, else `max_call_micro_usd`), fixed as the
   call is admitted, as the ledger does today for a call of unknown cost. A local route costs 0 unless prices are
-  declared; an answer with no usage costs 0 at declared prices and books the reservation on a route without them.
+  declared; an answer with no usage at all books the reservation on a route of any kind, priced or not, in the
+  run's ledger and in the route's day alike.
 - A managed pod's time (D-3, the operator's pick, 2026-11-27 12:35 CET; story
   `a-managed-route-books-its-pods-measured-time`): a managed route that declares `price_per_hour_micro_usd` books the
   time its pod ran for its runs at that price, beside its wakes, against `wake_daily_cap_micro_usd`, the route's
@@ -406,7 +407,10 @@ At submit, after the route is resolved and before anything is written:
   call's cost is booked before its caller sees the end of its answer, so no call is sent once the figure has reached
   the cap, and the last call sent below it may take the figure above the cap by its own cost (three calls of 1000
   under a cap of 3000 are sent, the fourth is refused). A route with no declared price books a call's reservation, not
-  its cost: `daily_cap_micro_usd` is refused on it at start, and its calls are capped by `daily_max_llm_calls`. The
+  its cost: `daily_cap_micro_usd` is refused on it at start, and its calls are capped by `daily_max_llm_calls`. An
+  answer with no usage at all books its reservation on a priced route too, so a gateway that reports no usage still
+  fills the spend cap. A call is counted on its route only after the run's caps took it, and the run of a decider's
+  or a classify call at the route's cap ends at that cap as a step's does. The
   relay writes the day into each line (`day`); a daemon started again rebuilds the figures from the lines of its
   ledgers. Built: `docs/daemon-api.md`, "The day's figures of a route".
 - A tool that a program starts and that calls a model through the route file (section 11) is booked by the relay

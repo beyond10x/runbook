@@ -250,6 +250,9 @@ pub trait Booking: Send + Sync {
     fn route_capped(&self, route: &str, key: &str, detail: &str) {
         let _ = (route, key, detail);
     }
+    /// Gives back the call [`Self::admit`] took: its route's day refused it after the run's caps took it (another run
+    /// took the route's last call in between), and nothing was sent.
+    fn withdraw(&self) {}
 }
 
 struct Entry {
@@ -471,27 +474,29 @@ enum NotAdmitted {
 async fn exchange(mut call: Call, passed: Vec<(String, String)>, sent: Vec<u8>, caller: &mut tokio::sync::oneshot::Sender<Response>) -> Response {
     let admitting = call.booking.clone();
     let (days, route) = (call.days.clone(), call.route.name.clone());
-    // The route's day first: a call it refuses is never taken against the run's caps, and the run is told, so it ends at
-    // that cap. A call the run's caps refuse gives its count of the day back.
+    // The route's day is read first: a call it refuses is never taken against the run's caps, and the run is told, so it
+    // ends at that cap. Then the run's caps, and only then is the call counted on its route: a call the run refuses never
+    // holds a count of the route's day while its run decides, so it takes no other run's last call. A call the route
+    // refuses at that count (another run took its last call in between) is given back to the run's caps.
     // The reservation of a call of unknown cost is fixed as the call is admitted (the step's largest while its step runs),
     // never read when the call is booked: a call answered after its step ended books what its step held.
     let admitted = tokio::task::spawn_blocking(move || {
+        let capped = |refused: crate::route_day::Refused| {
+            admitting.route_capped(&refused.route, &refused.key, &refused.detail);
+            NotAdmitted::Route(refused)
+        };
+        if let Some(Err(refused)) = days.as_ref().map(|d| d.check(&route)) {
+            return Err(capped(refused));
+        }
+        admitting.admit().map_err(NotAdmitted::Run)?;
         let day = match days.as_ref().map(|d| d.admit(&route)).transpose() {
             Ok(day) => day,
             Err(refused) => {
-                admitting.route_capped(&refused.route, &refused.key, &refused.detail);
-                return Err(NotAdmitted::Route(refused));
+                admitting.withdraw();
+                return Err(capped(refused));
             }
         };
-        match admitting.admit() {
-            Ok(()) => Ok((day, admitting.reservation_micro_usd())),
-            Err(detail) => {
-                if let (Some(d), Some(day)) = (&days, &day) {
-                    d.release(&route, day);
-                }
-                Err(NotAdmitted::Run(detail))
-            }
-        }
+        Ok((day, admitting.reservation_micro_usd()))
     });
     match admitted.await {
         Ok(Ok((day, reserved))) => (call.day, call.reserved) = (day, reserved),
@@ -671,12 +676,12 @@ pub fn cost_of(route: &ResolvedRoute, usage: &Usage) -> Option<u64> {
 /// What a call on `route` books and whether its cost is known. `failed`: the gateway's code, for a call that failed;
 /// `reserved`: the call's reservation, booked when its cost is not known. A call the gateway refused or did not answer
 /// costs nothing; one whose answer broke off ran, and is booked as a call that ended is. An answer with no usage at all
-/// costs 0 tokens at the route's prices when it declares any, else its cost is not known, on a route of any kind.
+/// is a call of unknown cost on a route of any kind, priced or not: it books its reservation, in the run's ledger and in
+/// its route's day alike, so a route's daily spend cap holds against a gateway that reports no usage.
 pub fn charge(route: &ResolvedRoute, usage: &Usage, failed: Option<&str>, reserved: u64) -> (u64, bool) {
-    let priced = route.price_in_micro_usd_per_mtok.is_some() || route.price_out_micro_usd_per_mtok.is_some();
     match (failed, cost_of(route, usage)) {
         (Some(code), _) if code != ANSWER_BROKEN && code != CALLER_HUNG_UP => (0, true),
-        (None, _) if usage.is_none() => if priced { (0, true) } else { (reserved, false) },
+        (None, _) if usage.is_none() => (reserved, false),
         (_, Some(cost)) => (cost, true),
         (_, None) => (reserved, false),
     }
@@ -1248,12 +1253,12 @@ mod tests {
     /// A call answered with no usage at all: on a route without prices its cost is not known and it books its
     /// reservation, whatever the route's kind; on a route with prices it costs 0 tokens at those prices.
     #[test]
-    fn a_call_answered_with_no_usage_books_its_reservation_unless_the_route_declares_prices() {
+    fn a_call_answered_with_no_usage_books_its_reservation_on_a_route_of_any_kind() {
         let none = Usage::default();
         assert_eq!(charge(&route("hosted", None, None), &none, None, 12_300), (12_300, false));
         assert_eq!(charge(&route("local", None, None), &none, None, 12_300), (12_300, false), "an unpriced local route");
         assert_eq!(charge(&route("managed", None, None), &none, None, 12_300), (12_300, false));
-        assert_eq!(charge(&route("hosted", Some(3_000_000), Some(15_000_000)), &none, None, 12_300), (0, true), "0 tokens at the declared prices");
+        assert_eq!(charge(&route("hosted", Some(3_000_000), Some(15_000_000)), &none, None, 12_300), (12_300, false), "a priced route: no usage is a cost not known");
         // with usage the rules stand: a local route without prices costs 0, an unpriced hosted one its reservation
         let used = Usage { input_tokens: Some(10), output_tokens: Some(5), ..Usage::default() };
         assert_eq!(charge(&route("local", None, None), &used, None, 12_300), (0, true));

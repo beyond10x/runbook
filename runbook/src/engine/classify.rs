@@ -35,6 +35,15 @@ const SOURCE: &str = "route_policy.classifier";
 /// Why no further call went out: the daemon cancelled the run (the run ends `Cancelled`, not on this text).
 const CANCELLED: &str = "cancelled: the daemon cancelled the run before this call";
 
+/// How the classify and build calls of a delegation ended.
+pub enum Resolved {
+    /// The path the delegation took.
+    Taken(Taken),
+    /// The classifier route's daily cap refused a call (`crate::route_day`): the run ends at that cap, with this outcome,
+    /// its `runbook.cap-reached` recorded.
+    AtCap(String),
+}
+
 /// The path a delegation took: the runbook its run runs and the home it is read from.
 pub struct Taken {
     pub runbook: String,
@@ -47,11 +56,11 @@ pub struct Taken {
 
 /// The path of the delegation `request`, taken now with the classify and build calls, or read from the run's directory when
 /// the run goes on from its store. `meter` is the run's: the calls count against its caps.
-pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, caps: Caps, workspace: &Path, meter: &Arc<Meter>, cancelled: &dyn Fn() -> bool) -> Result<Taken, String> {
+pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, caps: Caps, workspace: &Path, meter: &Arc<Meter>, cancelled: &dyn Fn() -> bool) -> Result<Resolved, String> {
     let file = request.state_dir.join(dlg::RESOLVED_FILE);
     if let Ok(text) = std::fs::read_to_string(&file) {
         let record: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", dlg::RESOLVED_FILE))?;
-        return taken_of(engine, request, &record);
+        return taken_of(engine, request, &record).map(Resolved::Taken);
     }
     let route = engine.classifier.clone().ok_or("the daemon has no classifier route ([route_policy] classifier)")?;
     let relay = engine.relay.as_ref().ok_or("the engine has no relay of the daemon to take the classifier's calls")?;
@@ -70,12 +79,16 @@ pub fn resolve(engine: &Engine, request: &StartRequest, sink: &dyn EventSink, ca
     drop(ticket);
     gate.record_calls(sink);
     gate.persist();
+    // the classifier route's daily cap refused a call: the run ends at that cap, as a run whose step's call it refused
+    if let Some(outcome) = gate.route_cap(sink) {
+        return Ok(Resolved::AtCap(outcome));
+    }
     if record.get("path").is_some() {
         sink.record(dlg::RESOLVED_EVENT, record.clone());
     }
     let taken = taken?;
     std::fs::write(&file, record.to_string()).map_err(|e| format!("{}: {e}", dlg::RESOLVED_FILE))?;
-    Ok(taken)
+    Ok(Resolved::Taken(taken))
 }
 
 /// The path a record of [`dlg::RESOLVED_EVENT`] names.

@@ -98,6 +98,16 @@ impl RouteDays {
     /// counted, when the day's calls have reached `daily_max_llm_calls` or the day's booked spend `daily_cap_micro_usd`
     /// (the cap of calls is read first).
     pub fn admit(&self, route: &str) -> Result<String, Refused> {
+        self.hold(route, true)
+    }
+
+    /// Whether [`Self::admit`] would take a call on `route` now, counting nothing: the relay asks it before the run's own
+    /// caps, so a call those refuse never holds a count of the route's day another run could need meanwhile.
+    pub fn check(&self, route: &str) -> Result<(), Refused> {
+        self.hold(route, false).map(drop)
+    }
+
+    fn hold(&self, route: &str, count: bool) -> Result<String, Refused> {
         let day = self.day();
         let daily = self.caps.get(route).copied().unwrap_or_default();
         let capped = daily.micro_usd.is_some() || daily.llm_calls.is_some();
@@ -116,15 +126,10 @@ impl RouteDays {
         if let Some(cap) = daily.micro_usd.filter(|cap| figure.booked_micro_usd >= *cap) {
             return Err(refused(DAILY_CAP, format!("route {route}: {} of {cap} micro USD booked on {day}", figure.booked_micro_usd)));
         }
-        figure.calls = figure.calls.saturating_add(1);
-        Ok(day)
-    }
-
-    /// Gives back the call [`Self::admit`] counted on `route` on `day`: the run's own caps refused it, and nothing was sent.
-    pub fn release(&self, route: &str, day: &str) {
-        if let Some(figure) = lock(&self.figures).get_mut(&(route.to_owned(), day.to_owned())) {
-            figure.calls = figure.calls.saturating_sub(1);
+        if count {
+            figure.calls = figure.calls.saturating_add(1);
         }
+        Ok(day)
     }
 
     /// Books `micro_usd`, what the ledger books for a call on `route` admitted on `day`.

@@ -275,7 +275,13 @@ impl Engine {
         let taken = if request.model_route.is_some() && request.runbook == crate::delegation::CLASSIFY_RUNBOOK && self.classifies() {
             // the cancel is asked before every classify, retry and build call; a run cancelled meanwhile ends Cancelled
             match classify::resolve(self, request, sink, caps, &workspace, &meter, &|| Self::cancelled(cancel, slot)) {
-                Ok(taken) => Some(taken),
+                Ok(classify::Resolved::Taken(taken)) => Some(taken),
+                // the classifier route's daily cap refused a call: the run ends at that cap from Running, as a run whose
+                // step's call it refused, not as a run that could not start
+                Ok(classify::Resolved::AtCap(outcome)) => {
+                    sink.started();
+                    return Ok(Finish::Outcome(outcome));
+                }
                 Err(_) if Self::cancelled(cancel, slot) => return Ok(Finish::Cancelled),
                 Err(why) => return Err(failure(why)),
             }
@@ -719,7 +725,16 @@ impl Engine {
                     let id = planned.request.request_id.clone();
                     wait.raise(planned.clone());
                     let Some(printed) = printed.and_then(|p| p.get(n)) else { continue };
-                    let Judgement::Answer { answer, by, principal } = judge.judge(printed) else { continue };
+                    let judged = judge.judge(printed);
+                    // a route's daily cap refused a call of the judge: the run ends at that cap now, as after a step
+                    // whose call it refused, and does not wait for a person on what the judge could not answer
+                    if gate.route_capped() {
+                        gate.record_calls(sink);
+                        if let Some(outcome) = gate.route_cap(sink) {
+                            return Ok(RoundEnd::Ended(Finish::Outcome(outcome)));
+                        }
+                    }
+                    let Judgement::Answer { answer, by, principal } = judged else { continue };
                     // A request read from its case takes only an answer that names one of its options (or a free
                     // answer where it takes one); any other judgement is not saved and leaves it open for a person.
                     if planned.request.artifact.as_ref().is_some_and(|a| !a.takes(&planned.request.options, &answer)) {

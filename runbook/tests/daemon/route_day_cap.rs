@@ -13,7 +13,7 @@
 //! outcome at the cap runs `runbook serve`. No model is called and nothing leaves loopback.
 
 use super::default_confinement::{post, rows, Live};
-use super::gateway::{home, serve, until_state, write_exe, Home};
+use super::gateway::{claude_cli, home, model_table, row, serve, until_state, wait_until, write_exe, Home};
 use super::http::{send, Resp};
 use super::relay::{gateway_answering, got, Gateway};
 use runbook::clock::SetClock;
@@ -641,4 +641,41 @@ fn adversary_a_classify_call_the_classifier_routes_daily_cap_refuses_ends_the_ru
     let capped: Vec<Value> = rows(&l, &format!("/daemon/views/events?run_id={run}&after_position=0")).into_iter().filter(|e| e["kind"] == "runbook.cap-reached").map(|e| e["record"].clone()).collect();
     assert_eq!(capped.len(), 1, "{capped:?}");
     assert_eq!((capped[0]["route"].clone(), capped[0]["cap_key"].clone()), (json!("classify"), json!("route.classify.daily_max_llm_calls")), "{}", capped[0]);
+}
+
+/// A call of the run's model decider that the route's daily cap refuses ends the run at that cap at once
+/// (`stopped: llm calls`, its `runbook.cap-reached` naming the route and the key), not in a wait for a person. The route
+/// takes 1 call a day and the decider judges each decision with one call, so its second call is refused.
+#[test]
+fn a_call_of_the_runs_decider_the_routes_daily_cap_refuses_ends_the_run_at_that_cap_and_not_in_a_wait() {
+    let h = home("day-cap-decider");
+    let body = r#"{"id":"m","usage":{"input_tokens":7,"output_tokens":0}}"#;
+    let answer = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes();
+    let gw = gateway_answering(move |_| answer.clone(), &["alias-a"]);
+    let file = format!(
+        "[gateways.one]\nbase_url = \"{}\"\ntoken_file = \"{}\"\n[routes.a]\ngateway = \"one\"\nmodel = \"alias-a\"\nkind = \"hosted\"\nprice_in_micro_usd_per_mtok = 1000000\ndaily_max_llm_calls = 1\n{}",
+        gw.base_url,
+        h.token_file.display(),
+        model_table(Some(&claude_cli()))
+    );
+    let l = serve("day-cap-decider-d", &h, &file, true);
+    let (status, body) = post(&l, &json!({"runbook_id": "autonomy-demo", "intake": "a note on tea", "confinement": "local", "autonomy": "A5", "decider": "model", "model_route": "a"}));
+    assert_eq!((status, body["outcome"].clone()), (202, json!("submitted")), "{body}");
+    let run = body["published"][0]["payload"]["run_id"].as_str().unwrap().to_owned();
+    let calls = || std::fs::read_to_string(h.log.join("statuses")).unwrap_or_default().lines().map(str::to_owned).collect::<Vec<_>>();
+    wait_until("the decider's second call", || calls().len() >= 2);
+    let s = calls();
+    assert!(s[0].contains(" 200 ") && s[1].contains(" 429 "), "{s:?}");
+    // the run ends at the cap within a short bound; one that waits for a person stays WaitingOnDecision
+    let mut end = row(&l, &run);
+    let limit = std::time::Instant::now() + Duration::from_secs(5);
+    while end["state"] != "Ended" && std::time::Instant::now() < limit {
+        std::thread::sleep(Duration::from_millis(50));
+        end = row(&l, &run);
+    }
+    assert_eq!((end["state"].clone(), end["outcome"].clone()), (json!("Ended"), json!("stopped: llm calls")), "{end}");
+    assert_eq!(got(&gw).len(), 1, "the call past the route's cap reached the gateway");
+    let capped: Vec<Value> = rows(&l, &format!("/daemon/views/events?run_id={run}&after_position=0")).into_iter().filter(|e| e["kind"] == "runbook.cap-reached").map(|e| e["record"].clone()).collect();
+    assert_eq!(capped.len(), 1, "{capped:?}");
+    assert_eq!((capped[0]["cap"].clone(), capped[0]["route"].clone(), capped[0]["cap_key"].clone()), (json!("llm calls"), json!("a"), json!("route.a.daily_max_llm_calls")), "{}", capped[0]);
 }

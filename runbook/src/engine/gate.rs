@@ -439,6 +439,19 @@ impl crate::relay::Booking for RelayBooking {
     fn route_capped(&self, route: &str, key: &str, detail: &str) {
         lock(&self.route_capped).get_or_insert_with(|| (route.to_owned(), key.to_owned(), detail.to_owned()));
     }
+
+    /// The counts [`Self::admit`] took for a call that was not sent: the run's call, the call in flight and, in a step,
+    /// the step's.
+    fn withdraw(&self) {
+        let less = |counter: &AtomicU64| {
+            let _ = counter.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+        };
+        less(&self.meter.calls);
+        less(&self.in_flight);
+        if self.step.name().is_some() {
+            less(&self.taken);
+        }
+    }
 }
 
 pub struct Gate {
@@ -685,6 +698,11 @@ impl Gate {
         sink.record("runbook.cap-reached", json!({"cap": cap.name(), "detail": detail}));
         self.persist();
         cap.outcome().to_owned()
+    }
+
+    /// Whether a route's daily cap refused a call of the run that [`Self::route_cap`] has not taken yet.
+    pub fn route_capped(&self) -> bool {
+        self.routed.as_ref().is_some_and(|b| lock(&b.route_capped).is_some())
     }
 
     /// A route's daily cap refused a call of the run (`crate::route_day`, taken once): the run ends as a run at a cap
