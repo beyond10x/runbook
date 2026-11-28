@@ -47,6 +47,8 @@ fn adversary_routes_row_a_keyed_run_submitted_inside_the_window_that_gets_its_ke
     answer(&d, &holder);
     let wake = until_records(&d, &keyed, "runbook.route-wake");
     assert_eq!(wake, vec![json!({"route": "qwen", "sent": true, "day": "2026-11-26", "cost_micro_usd": 100, "booked_micro_usd": 200, "cap_micro_usd": 500})], "the run joined a wake past its window");
+    // the daemon writes `runbook.route-wake` before it sends the wake; its answer is written after the gateway took it
+    until_records(&d, &keyed, "runbook.route-wake-answered");
     assert_eq!(gw.wakes(), 2);
     gw.no_call();
 }

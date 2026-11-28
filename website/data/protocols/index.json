@@ -696,7 +696,6 @@
         "**The run page does not show a route's figures of the day.** The view `routes` answers them and the members of this release; the page's Routes view shows the route, alias, kind, gateway, status, phase, wires and read time only (`ui/daemon/routes.js`).",
         "**`wake_joinable` is a reading at the daemon's clock, not a promise.** A wake may stop being joinable before `wake_joinable_until` (a `4xx` answer, its run ending without a `2xx`), and a run behind a serial key that gets its key at or after that instant sends its own wake. With no `start_wait_seconds` no wake is joinable.",
         "**`lost` says nothing of what the gateway did.** A wake whose daemon went away while it was out has no answer for good; the gateway may have taken it.",
-        "**One case of this release can fail on a race of its own.** `adversary_routes_row_a_keyed_run_submitted_inside_the_window_that_gets_its_key_at_wake_joinable_until_sends_its_own_wake` in `runbook/tests/daemon/adversary_routes_row.rs` counts the stand-in gateway's wakes as soon as the run's `runbook.route-wake` is written, and the daemon writes that record before it sends the wake: it failed once with one wake counted while the run's own wake was recorded as sent, which is the outcome the case asserts.",
         "**A delegation that changes a repository is a first slice.** It runs at `--confinement local` only, where there is no OS confinement and the agent node's write fence is its tool set and its working directory. Not built, each back to the operator first: the draft merge request and any forge client or forge token, the level `linux` and its Loom request, the hand-back as a step the bug-fix runbook shares, a base a delegation chooses, a fetch before the worktree is made, and the removal of a kept tree (`docs/daemon-api.md`, \"A delegation that changes a repository\").",
         "**No case forces two runs to take a route's last daily call at the same instant.** The case that two runs share a route's day (`two_runs_on_one_route_share_its_day_figure` in `runbook/tests/daemon/route_day_cap.rs`) sends their calls one after the other. The spend cap holds the booked figure, so the last call sent below it may take the day's figure above it by its own cost.",
         "**A journal of 0.15.0 or later may not replay in an older `runbook`.** A runbook older than 0.15.0 refuses to replay a journal that holds a `route.wake-answered` line, the daemon's own line for a wake answered after its run was closed (`docs/daemon-api.md`, \"The wake of a managed route\"). This release adds no journal line.",
@@ -1340,7 +1339,7 @@
     },
     {
       "path": "docs/releases/0.16.0.md",
-      "sha256": "c9949d1dfcadaae24e8f160402a188410af8fa0d5f778e633ade0c324c3b6497"
+      "sha256": "c48232e4bca28e832097097f15a43173d83cdae411b0b369671517be8545a810"
     },
     {
       "path": "docs/releases/0.2.0.md",
